@@ -1,6 +1,7 @@
-import React from "react";
+import React, { useState } from "react";
 import { EMPLOY_META, Employ, Person, SalaryRecord, TAG_META, fmt, lastOf } from "../data";
 import { Icon, IconName } from "./icons";
+import { SalaryCalc } from "./SalaryCalc";
 
 /* ---------- 区块标题 ---------- */
 function CardHead({ icon, title, extra }: { icon: IconName; title: string; extra?: React.ReactNode }) {
@@ -162,11 +163,14 @@ function HistoryTable({ history }: { history: SalaryRecord[] }) {
 }
 
 /* ---------- 主面板 ---------- */
-export function DetailPanel({ person, unitName, onTool }: {
+export function DetailPanel({ person, unitName, onTool, onToast }: {
   person: Person | null;
   unitName: string;
   onTool: (a: "query" | Employ) => void;
+  onToast: (t: "success" | "error" | "info", m: string) => void;
 }) {
+  const [mode, setMode] = useState<"profile" | "calc">("profile");
+
   if (!person) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
@@ -217,9 +221,27 @@ export function DetailPanel({ person, unitName, onTool }: {
             active={p.employ === "退休"} onClick={() => onTool("退休")} />
           <ToolBtn icon="stop" label="止薪" color="border-[rgba(255,69,58,.5)] text-[#ff8b84] bg-[rgba(255,69,58,.1)]"
             active={p.employ === "止薪"} onClick={() => onTool("止薪")} />
+          <span className="w-px h-4 bg-white/10 mx-0.5" />
+          <div className="flex items-center rounded-lg border border-[#2a303b] bg-[#14171d] p-0.5">
+            {([["profile", "user", "人员档案"], ["calc", "sum", "套改测算"]] as const).map(([m, ic, lb]) => (
+              <button key={m} onClick={() => setMode(m)}
+                className={`flex items-center gap-1.5 h-[26px] px-2.5 rounded-md text-[11.5px] font-medium transition-all ${
+                  mode === m
+                    ? "bg-[#0a84ff] text-white shadow-[0_2px_10px_rgba(10,132,255,.4)]"
+                    : "text-[#8b95a7] hover:text-[#e2e6ee]"
+                }`}>
+                <Icon name={ic} size={12} />
+                {lb}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
+      {mode === "calc" ? (
+        <SalaryCalc person={person} onToast={onToast} />
+      ) : (
+      <>
       {/* 上部：基本信息 + 套改明细 */}
       <div className="shrink-0 grid grid-cols-1 xl:grid-cols-[400px_1fr] gap-3">
         <div className="card-panel overflow-hidden">
@@ -278,6 +300,8 @@ export function DetailPanel({ person, unitName, onTool }: {
 
       {/* 下部：工资演变 */}
       <HistoryTable history={p.history} />
+      </>
+      )}
     </div>
   );
 }

@@ -9,6 +9,65 @@ import {
 } from "./components/modals";
 import { AllowanceModal, CalcModal, CatalogModal } from "./components/tools";
 import { Icon } from "./components/icons";
+import { Calculator, PERSON_CALC_INPUTS, POLICY_CONFIG, levelWage } from "./core/calculator";
+
+/* ---------- 全部重算：调用核心模块重新执行三方案套改比对 ---------- */
+function recomputePerson(p: Person): { next: Person; changed: boolean; skipped: boolean } {
+  const inp = PERSON_CALC_INPUTS[p.id];
+  if (!inp) return { next: p, changed: false, skipped: true }; // 工人/专技等轨道不适用
+
+  if (inp.type === "post2006") {
+    const edu = POLICY_CONFIG.EDUCATION[inp.eduValue] ?? POLICY_CONFIG.EDUCATION[4];
+    const pb = edu.probation;
+    const result = `${pb.level}.${pb.grade} 工资 ${levelWage(pb.level, pb.grade)}`;
+    const note = `转正定级：${POLICY_CONFIG.getLabel(pb.dutyIndex)}，时间${inp.startYear + 1}年，试用期1年，任职年限0年`;
+    const changed = p.tgNow.result !== result;
+    return {
+      next: { ...p, tgNow: { result, note }, tYears: inp.startYear + 1 - inp.startYear },
+      changed, skipped: false,
+    };
+  }
+
+  const taogao = Calculator.calcTaogaoYears(inp.startYear, POLICY_CONFIG.EDUCATION[inp.eduValue]?.settleYears ?? 0, inp.deductYears);
+  const tenure = Math.max(0, 2006 - inp.currentDutyYear);
+  const lowerTenure = inp.lowerDuty > 0 ? Math.max(0, 2006 - inp.lowerDutyYear) : 0;
+  const comp = Calculator.compareThreeWays(inp.currentDuty, inp.lowerDuty, inp.eduValue, taogao, tenure, lowerTenure);
+  const [now, low] = [comp.results[0], comp.results.length === 3 ? comp.results[1] : null];
+  const eduItem = comp.results[comp.results.length - 1];
+  const best = comp.best;
+
+  const curType = best.method === "按现职套" ? "按现职级套改" : best.method === "按低职套" ? "按低职级套改" : "按学历套改";
+  // 结果不变时保留台账原备注，避免无谓差异
+  const keep = (old: { result: string; note: string }, result: string, note: string) =>
+    old.result === result ? old : { result, note };
+  const next: Person = {
+    ...p,
+    tYears: taogao,
+    curType,
+    tgNow: keep(
+      p.tgNow,
+      `${now.level}.${now.grade} 工资 ${levelWage(now.level, now.grade)}`,
+      `时任职务：${POLICY_CONFIG.getLabel(inp.currentDuty)}，时间${inp.currentDutyYear}年，间断${inp.deductYears}年，任职年限${tenure}年，退休费提高比例0%`
+    ),
+    tgLow: low
+      ? keep(
+          p.tgLow,
+          `${low.level}.${low.grade} 工资 ${levelWage(low.level, low.grade)}`,
+          `低一职务：${POLICY_CONFIG.getLabel(inp.lowerDuty)}，时间${inp.lowerDutyYear}年，间断${inp.deductYears}年，任职年限${lowerTenure}年`
+        )
+      : p.tgLow,
+    tgEdu: keep(
+      p.tgEdu,
+      `${eduItem.level}.${eduItem.grade} 工资 ${levelWage(eduItem.level, eduItem.grade)}`,
+      p.tgEdu.note
+    ),
+  };
+  const changed =
+    p.tgNow.result !== next.tgNow.result ||
+    p.tgLow.result !== next.tgLow.result ||
+    p.tgEdu.result !== next.tgEdu.result;
+  return { next, changed, skipped: false };
+}
 
 type ModalKind =
   | "query" | "unit" | "allowance" | "recalc" | "rolling"
@@ -137,12 +196,25 @@ export default function App() {
     pushToast("success", `已删除单位 [${id}]`);
   };
 
-  /* ---------- 重算 ---------- */
+  /* ---------- 重算：核心模块逐人重新比对 ---------- */
   const onRecalcDone = useCallback(() => {
     const t = new Date();
     const p2 = (n: number) => String(n).padStart(2, "0");
     setLastRecalc(`${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())}`);
-    pushToast("success", "全部重算完成，套改结果已刷新");
+    let updated = 0, same = 0, skipped = 0;
+    setPersons((arr) =>
+      arr.map((p) => {
+        const r = recomputePerson(p);
+        if (r.skipped) skipped++;
+        else if (r.changed) updated++;
+        else same++;
+        return r.next;
+      })
+    );
+    pushToast(
+      "success",
+      `全部重算完成：${updated} 人结果更新，${same} 人与台账一致${skipped ? `，${skipped} 人非公务员轨道跳过` : ""}`
+    );
   }, [pushToast]);
 
   /* ---------- 注册 ---------- */
@@ -211,6 +283,7 @@ export default function App() {
             person={selected}
             unitName={selected ? unitName(selected.unitId) : ""}
             onTool={onTool}
+            onToast={pushToast}
           />
         </main>
       </div>

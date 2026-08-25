@@ -4,6 +4,7 @@ import {
   defaultAllowances, fmt, lastOf,
 } from "../data";
 import { Icon } from "./icons";
+import { levelWage } from "../core/calculator";
 import { Btn, Modal } from "./modals";
 
 /* ================= 计算器 ================= */
@@ -198,14 +199,14 @@ export function AllowanceModal({ person, unitName, onClose, onToast }: {
 }
 
 /* ================= 目录数据 ================= */
-type CatalogTab = "unit" | "duty" | "rank" | "position";
+type CatalogTab = "unit" | "duty" | "rank" | "position" | "core";
 
 export function CatalogModal({ units, persons, onClose }: {
   units: Unit[]; persons: Person[]; onClose: () => void;
 }) {
   const [tab, setTab] = useState<CatalogTab>("rank");
   const tabs: [CatalogTab, string][] = [
-    ["unit", "单位目录"], ["duty", "职务工资表"], ["rank", "级别工资表"], ["position", "职务层次表"],
+    ["unit", "单位目录"], ["duty", "职务工资表"], ["rank", "级别工资表"], ["position", "职务层次表"], ["core", "核心速算表"],
   ];
 
   return (
@@ -290,6 +291,38 @@ export function CatalogModal({ units, persons, onClose }: {
                 ))}
               </tbody>
             </table>
+          )}
+          {tab === "core" && (
+            <div>
+              <table className="text-[11px] border-collapse">
+                <thead>
+                  <tr>
+                    <th className="sticky top-0 left-0 z-20 px-2.5 py-1.5 text-left text-[10px] font-medium text-[#8b95a7] bg-[#242935] border-b border-r border-[#333a47]">级别</th>
+                    {Array.from({ length: 14 }, (_, g) => g + 1).map((g) => (
+                      <th key={g} className="sticky top-0 z-10 px-2 py-1.5 text-right text-[10px] font-medium text-[#8b95a7] bg-[#242935] border-b border-[#333a47] font-mono2">{g}档</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.from({ length: 27 }, (_, i) => 27 - i).map((L) => (
+                    <tr key={L} className={L % 2 === 0 ? "bg-white/[.015]" : ""}>
+                      <td className={`sticky left-0 z-10 px-2.5 py-1 font-mono2 border-r border-white/[.05] whitespace-nowrap ${L === 18 || L === 16 || L === 25 ? "text-[#6db1ff] bg-[#242935]" : "text-[#8ed6fa] bg-[#1e222b]"}`}>{L}级</td>
+                      {Array.from({ length: 14 }, (_, g) => g + 1).map((g) => {
+                        const hot = (L === 18 && g === 7) || (L === 19 && g === 8) || (L === 16 && g === 8) || (L === 25 && g === 2);
+                        return (
+                          <td key={g} className={`px-2 py-1 text-right font-mono2 whitespace-nowrap ${hot ? "text-[#ffd669] font-semibold" : "text-[#c3cad6]"}`}>
+                            {levelWage(L, g).toLocaleString()}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="px-1 pt-2 pb-1 text-[10px] text-[#5d6779] leading-relaxed">
+                由测算核心模块实时生成（与微信小程序后台共用）；黄色单元格为 2006 工改台账锚点：18级7档=976、19级8档=945、16级8档=1213、25级2档=380。
+              </p>
+            </div>
           )}
         </div>
       </div>
