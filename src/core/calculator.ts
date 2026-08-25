@@ -1,30 +1,19 @@
-/* =====================================================================
- * 测算核心模块（Web 移植版）
- * 与微信小程序 utils/calculator.js 保持完全一致的 API：
- *   POLICY_CONFIG.{ POSITION_OPTIONS, EDUCATION, getLabel, getNextDuty }
- *   Calculator.{ calcTaogaoYears, compareThreeWays, calcRolling, calcPromotion }
- * 封装为 exe 时与小程序后台共用同一份计算逻辑，替换本文件即可接入正式参数表。
- * ===================================================================== */
+/* ========================================================================== */
+/*  公务员工资测算系统 · 计算核心                                              */
+/*  由微信小程序 utils/calculator.js 原样移植（TS 化），运算口径以本文件为准     */
+/*  —— 套改表 TAOGAO_TABLE / 级别工资 SALARY_STANDARD 均为 2006 工改基准        */
+/* ========================================================================== */
 
-export interface PositionOption {
-  type: "duty" | "rank";
-  value: number;
-  label: string;
-}
+import type { Person } from "../data";
 
-export interface ProbationInfo {
-  level: number;
-  grade: number;
-  dutyIndex: number;
-}
+export interface LG { level: number; grade: number; }
+
+export interface PositionOption { value: number; label: string; type: "duty" | "rank"; }
 
 export interface EduConfig {
-  label: string;
+  name: string;
   settleYears: number;
-  /** 2006 工改「按学历套」结果 */
-  taogao: { level: number; grade: number };
-  /** 2006 年后考入「转正定级」结果 */
-  probation: ProbationInfo;
+  probation: { level: number; grade: number; dutyIndex: number };
 }
 
 export interface CompareItem {
@@ -34,285 +23,387 @@ export interface CompareItem {
   tenure: number | string;
   level: number;
   grade: number;
-  isBest: boolean;
+  isBest?: boolean;
 }
 
-export interface RollingEvent {
+export interface RollingStep {
   year: number;
-  reason: string;
   level: number;
   grade: number;
+  reason: string;
   levelStartYear: number;
   gradeStartYear: number;
 }
 
-export interface RollingResult {
-  level: number;
-  grade: number;
+export interface RollingResult extends LG {
   levelStartYear: number;
   gradeStartYear: number;
-  history: RollingEvent[];
-}
-
-export interface PositionChange {
-  year: number;
-  dutyIndex: number;
-  reason: string;
-  isInitial?: boolean;
-}
-
-export interface CalcInput {
-  type: "pre2006" | "post2006";
-  startYear: number;
-  eduValue: number; // 0 | 3 | 4 | 6
-  deductYears: number;
-  currentDuty: number; // 职务/职级 value
-  currentDutyYear: number;
-  lowerDuty: number; // 0 = 无
-  lowerDutyYear: number;
-  isLeader: boolean;
-  changes: PositionChange[];
-}
-
-const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
-
-/* ---------------- 职务 / 职级 目录 ---------------- */
-
-const DUTY_LIST: PositionOption[] = [
-  { type: "duty", value: 1, label: "办事员" },
-  { type: "duty", value: 2, label: "科员" },
-  { type: "duty", value: 3, label: "乡科级副职" },
-  { type: "duty", value: 4, label: "乡科级正职" },
-  { type: "duty", value: 5, label: "县处级副职" },
-  { type: "duty", value: 6, label: "县处级正职" },
-  { type: "duty", value: 7, label: "厅局级副职" },
-  { type: "duty", value: 8, label: "厅局级正职" },
-  { type: "duty", value: 9, label: "省部级副职" },
-  { type: "duty", value: 10, label: "省部级正职" },
-];
-
-const RANK_LIST: PositionOption[] = [
-  { type: "rank", value: 11, label: "一级巡视员" },
-  { type: "rank", value: 12, label: "二级巡视员" },
-  { type: "rank", value: 13, label: "一级调研员" },
-  { type: "rank", value: 14, label: "二级调研员" },
-  { type: "rank", value: 15, label: "三级调研员" },
-  { type: "rank", value: 16, label: "四级调研员" },
-  { type: "rank", value: 17, label: "一级主任科员" },
-  { type: "rank", value: 18, label: "二级主任科员" },
-  { type: "rank", value: 19, label: "三级主任科员" },
-  { type: "rank", value: 20, label: "四级主任科员" },
-  { type: "rank", value: 21, label: "一级科员" },
-  { type: "rank", value: 22, label: "二级科员" },
-];
-
-/** 级别范围 [最大级别号(最低), 最小级别号(最高)] */
-const LEVEL_RANGE: Record<number, [number, number]> = {
-  1: [27, 19], 2: [26, 18], 3: [24, 17], 4: [22, 16], 5: [20, 14],
-  6: [18, 12], 7: [15, 10], 8: [13, 8], 9: [10, 6], 10: [8, 4],
-  11: [13, 8], 12: [15, 10], 13: [17, 11], 14: [18, 12], 15: [19, 13],
-  16: [20, 14], 17: [21, 15], 18: [22, 16], 19: [23, 17], 20: [24, 18],
-  21: [26, 18], 22: [27, 19],
-};
-
-/** 职务工资标准（基准年，非领导职务；职级按对应职务靠档） */
-const DUTY_WAGE: Record<number, number> = {
-  1: 340, 2: 380, 3: 430, 4: 480, 5: 540, 6: 600, 7: 680, 8: 760, 9: 900, 10: 1150,
-  11: 760, 12: 680, 13: 600, 14: 600, 15: 540, 16: 540,
-  17: 480, 18: 480, 19: 430, 20: 430, 21: 380, 22: 340,
-};
-
-/* ---------------- 级别工资速算表 ----------------
- * 以工资台账锚点反推：18级7档=976、17级7档=1061(档差57)、
- * 16级8档=1213(档差61)、19级8档=945、25级2档=380，
- * wage(level, grade) = A(level) + grade × S(level)，锚点间分段线性。
- * ------------------------------------------------ */
-const ANCHORS: [number, number, number][] = [
-  [16, 725, 61],
-  [17, 662, 57],
-  [18, 605, 53],
-  [19, 553, 49],
-  [25, 330, 25],
-];
-
-function anchorAt(level: number): { A: number; S: number } {
-  const L = clamp(level, 1, 27);
-  if (L <= ANCHORS[0][0]) {
-    const [l0, a0, s0] = ANCHORS[0];
-    const [l1, a1, s1] = ANCHORS[1];
-    return { A: a0 + ((a1 - a0) / (l1 - l0)) * (L - l0), S: s0 + ((s1 - s0) / (l1 - l0)) * (L - l0) };
-  }
-  const last = ANCHORS.length - 1;
-  if (L >= ANCHORS[last][0]) {
-    const [l0, a0, s0] = ANCHORS[last - 1];
-    const [l1, a1, s1] = ANCHORS[last];
-    return { A: a1 + ((a1 - a0) / (l1 - l0)) * (L - l1), S: s1 + ((s1 - s0) / (l1 - l0)) * (L - l1) };
-  }
-  for (let i = 0; i < last; i++) {
-    const [l0, a0, s0] = ANCHORS[i];
-    const [l1, a1, s1] = ANCHORS[i + 1];
-    if (L >= l0 && L <= l1) {
-      const t = (L - l0) / (l1 - l0);
-      return { A: a0 + (a1 - a0) * t, S: s0 + (s1 - s0) * t };
-    }
-  }
-  return { A: 605, S: 53 };
-}
-
-/** 级别工资（元/月） */
-export function levelWage(level: number, grade: number): number {
-  const { A, S } = anchorAt(level);
-  return Math.round(A + grade * S);
-}
-
-/** 就近就高：在新级别中找工资不低于目标值的最小档次 */
-export function nearestGrade(level: number, targetWage: number): number {
-  for (let g = 1; g <= 14; g++) {
-    if (levelWage(level, g) >= targetWage) return g;
-  }
-  return 14;
-}
-
-export function dutyWage(dutyValue: number): number {
-  return DUTY_WAGE[dutyValue] ?? 0;
+  history: RollingStep[];
 }
 
 /* ---------------- POLICY_CONFIG ---------------- */
 
-export const POLICY_CONFIG = {
-  POSITION_OPTIONS: [...DUTY_LIST, ...RANK_LIST],
+const POSITION_OPTIONS: PositionOption[] = [
+  { value: 1, label: "办事员", type: "duty" },
+  { value: 2, label: "科员", type: "duty" },
+  { value: 3, label: "乡科级副职", type: "duty" },
+  { value: 4, label: "乡科级正职", type: "duty" },
+  { value: 5, label: "县处级副职", type: "duty" },
+  { value: 6, label: "县处级正职", type: "duty" },
+  { value: 7, label: "厅局级副职", type: "duty" },
+  { value: 8, label: "厅局级正职", type: "duty" },
+  { value: 9, label: "省部级副职", type: "duty" },
+  { value: 10, label: "省部级正职", type: "duty" },
+];
 
-  EDU_OPTIONS: [
-    { label: "研究生（套改学历6年）", value: 6 },
-    { label: "大学本科（套改学历4年）", value: 4 },
-    { label: "专科（套改学历3年）", value: 3 },
-    { label: "高中（无套改学历）", value: 0 },
-  ],
+function getLabel(value: number): string {
+  for (const o of POSITION_OPTIONS) if (o.value === value) return o.label;
+  return "未知";
+}
 
-  EDUCATION: {
-    0: { label: "高中", settleYears: 0, taogao: { level: 27, grade: 1 }, probation: { level: 27, grade: 1, dutyIndex: 1 } },
-    3: { label: "大学专科", settleYears: 3, taogao: { level: 26, grade: 2 }, probation: { level: 26, grade: 2, dutyIndex: 2 } },
-    4: { label: "大学本科", settleYears: 4, taogao: { level: 25, grade: 2 }, probation: { level: 25, grade: 2, dutyIndex: 2 } },
-    6: { label: "研究生", settleYears: 6, taogao: { level: 24, grade: 2 }, probation: { level: 24, grade: 3, dutyIndex: 2 } },
-  } as Record<number, EduConfig>,
+function getNextDuty(currentValue: number): number {
+  const duties = POSITION_OPTIONS.filter((o) => o.type === "duty");
+  for (let j = 0; j < duties.length; j++) {
+    if (duties[j].value === currentValue) return j < duties.length - 1 ? duties[j + 1].value : currentValue;
+  }
+  return currentValue;
+}
 
-  getLabel(value: number): string {
-    const o = this.POSITION_OPTIONS.find((x) => x.value === value);
-    return o ? o.label : "—";
-  },
-
-  getNextDuty(value: number): number {
-    if (value >= 1 && value < 10) return value + 1;
-    if (value === 10) return 10;
-    if (value >= 11 && value <= 22) return Math.max(11, value - 1);
-    return value;
-  },
-
-  getLevelRange(value: number): [number, number] {
-    return LEVEL_RANGE[value] ?? [27, 19];
-  },
+/* 【修复点1】研究生转正定级修正为 24-3 */
+const EDUCATION: Record<number, EduConfig> = {
+  0: { name: "高中", settleYears: 0, probation: { level: 27, grade: 1, dutyIndex: 1 } },
+  3: { name: "专科", settleYears: 3, probation: { level: 26, grade: 2, dutyIndex: 1 } },
+  4: { name: "本科", settleYears: 4, probation: { level: 25, grade: 2, dutyIndex: 2 } },
+  5: { name: "本科(双证)", settleYears: 5, probation: { level: 25, grade: 2, dutyIndex: 2 } },
+  6: { name: "研究生", settleYears: 6, probation: { level: 24, grade: 3, dutyIndex: 3 } },
 };
+
+const DUTY_LEVEL_RANGE: Record<number, { min: number; max: number }> = {
+  1: { min: 27, max: 19 }, 2: { min: 26, max: 18 }, 3: { min: 24, max: 17 }, 4: { min: 22, max: 16 },
+  5: { min: 20, max: 14 }, 6: { min: 18, max: 12 }, 7: { min: 16, max: 10 }, 8: { min: 14, max: 8 },
+  9: { min: 12, max: 6 }, 10: { min: 10, max: 4 },
+};
+
+/* 级别工资标准表（2006 基准，下标 0 占位） */
+const SALARY_STANDARD: Record<number, number[]> = {
+  1: [0, 3020, 3180, 3340, 3500, 3660, 3820],
+  2: [0, 2770, 2915, 3060, 3205, 3350, 3495, 3640],
+  3: [0, 2530, 2670, 2810, 2950, 3090, 3230, 3370, 3510],
+  4: [0, 2290, 2426, 2562, 2698, 2834, 2970, 3106, 3242, 3378],
+  5: [0, 2070, 2202, 2334, 2466, 2598, 2730, 2862, 2994, 3126, 3258],
+  6: [0, 1870, 1996, 2122, 2248, 2374, 2500, 2626, 2752, 2878, 3004, 3130],
+  7: [0, 1700, 1818, 1936, 2054, 2172, 2290, 2408, 2526, 2644, 2762, 2880],
+  8: [0, 1560, 1669, 1778, 1887, 1996, 2105, 2214, 2323, 2432, 2541, 2650],
+  9: [0, 1438, 1538, 1638, 1738, 1838, 1938, 2038, 2138, 2238, 2338, 2438],
+  10: [0, 1324, 1416, 1508, 1600, 1692, 1784, 1876, 1968, 2060, 2152, 2244],
+  11: [0, 1217, 1302, 1387, 1472, 1557, 1642, 1727, 1812, 1897, 1982, 2067, 2152],
+  12: [0, 1117, 1196, 1275, 1354, 1433, 1512, 1591, 1670, 1749, 1828, 1907, 1986, 2065],
+  13: [0, 1024, 1098, 1172, 1246, 1320, 1394, 1468, 1542, 1616, 1690, 1764, 1838, 1912, 1986],
+  14: [0, 938, 1007, 1076, 1145, 1214, 1283, 1352, 1421, 1490, 1559, 1628, 1697, 1766, 1835],
+  15: [0, 859, 924, 989, 1054, 1119, 1184, 1249, 1314, 1379, 1444, 1509, 1574, 1639, 1704],
+  16: [0, 786, 847, 908, 969, 1030, 1091, 1152, 1213, 1274, 1335, 1396, 1457, 1518, 1579],
+  17: [0, 719, 776, 833, 890, 947, 1004, 1061, 1118, 1175, 1232, 1289, 1346, 1403],
+  18: [0, 658, 711, 764, 817, 870, 923, 976, 1029, 1082, 1135, 1188, 1241, 1294],
+  19: [0, 602, 651, 700, 749, 798, 847, 896, 945, 994, 1043, 1092, 1141],
+  20: [0, 551, 596, 641, 686, 731, 776, 821, 866, 911, 956, 1001],
+  21: [0, 504, 545, 586, 627, 668, 709, 750, 791, 832, 873],
+  22: [0, 461, 498, 535, 572, 609, 646, 683, 720, 757],
+  23: [0, 422, 455, 488, 521, 554, 587, 620, 653],
+  24: [0, 386, 416, 446, 476, 506, 536, 566, 596],
+  25: [0, 352, 380, 408, 436, 464, 492, 520],
+  26: [0, 320, 347, 374, 401, 428, 455],
+  27: [0, 290, 316, 342, 368, 394, 420],
+};
+
+/* 2006 套改表：TAOGAO_TABLE[职务][任职年限区间][套改年限区间] = "级-档" */
+const TAOGAO_TABLE: Record<number, Record<number, Record<number, string>>> = {
+  4: { 1: { 5: "22-1", 6: "22-2", 7: "22-3", 8: "21-3", 9: "21-4", 10: "20-4", 11: "20-5", 12: "19-5", 13: "19-6", 14: "18-6", 15: "18-7", 16: "17-7", 17: "17-8", 18: "16-8" }, 2: { 6: "21-2", 7: "21-3", 8: "21-4", 9: "21-5", 10: "20-5", 11: "20-6", 12: "19-6", 13: "19-7", 14: "18-7", 15: "18-8", 16: "17-8", 17: "17-9", 18: "16-9" }, 3: { 7: "20-2", 8: "20-3", 9: "20-4", 10: "20-5", 11: "20-6", 12: "19-6", 13: "19-7", 14: "18-7", 15: "18-8", 16: "17-8", 17: "17-9", 18: "16-9" }, 4: { 8: "19-3", 9: "19-4", 10: "19-5", 11: "19-6", 12: "19-7", 13: "19-8", 14: "18-8", 15: "18-9", 16: "17-9", 17: "17-10", 18: "16-10" } },
+  3: { 1: { 3: "24-1", 4: "24-2", 5: "23-2", 6: "23-3", 7: "22-3", 8: "22-4", 9: "21-4", 10: "21-5", 11: "20-5", 12: "20-6", 13: "19-6", 14: "19-7", 15: "18-7", 16: "18-8", 17: "17-8" }, 2: { 4: "23-2", 5: "23-3", 6: "23-4", 7: "22-4", 8: "22-5", 9: "21-5", 10: "21-6", 11: "20-6", 12: "20-7", 13: "19-7", 14: "19-8", 15: "18-8", 16: "18-9", 17: "17-9" }, 3: { 5: "22-2", 6: "22-3", 7: "22-4", 8: "22-5", 9: "21-5", 10: "21-6", 11: "20-6", 12: "20-7", 13: "19-7", 14: "19-8", 15: "18-8", 16: "18-9", 17: "17-9" }, 4: { 6: "21-3", 7: "21-4", 8: "21-5", 9: "21-6", 10: "21-7", 11: "20-7", 12: "20-8", 13: "19-8", 14: "19-9", 15: "18-9", 16: "18-10", 17: "17-10" } },
+  2: { 1: { 2: "26-1", 3: "26-2", 4: "25-2", 5: "25-3", 6: "24-3", 7: "24-4", 8: "23-4", 9: "23-5", 10: "22-5", 11: "22-6", 12: "21-6", 13: "21-7", 14: "20-7", 15: "20-8", 16: "19-8", 17: "19-9", 18: "18-9" } },
+  1: { 1: { 1: "27-1", 2: "27-2", 3: "27-3", 4: "26-3", 5: "26-4", 6: "25-4", 7: "25-5", 8: "24-5", 9: "24-6", 10: "23-6", 11: "23-7", 12: "22-7", 13: "22-8", 14: "21-8", 15: "21-9", 16: "20-9", 17: "20-10", 18: "19-10" } },
+  5: { 1: { 6: "20-1", 7: "20-2", 8: "20-3", 9: "20-4", 10: "19-4", 11: "19-5", 12: "18-5", 13: "18-6", 14: "17-6", 15: "17-7", 16: "16-7", 17: "16-8", 18: "15-8" }, 2: { 7: "19-2", 8: "19-3", 9: "19-4", 10: "19-5", 11: "19-6", 12: "18-6", 13: "18-7", 14: "17-7", 15: "17-8", 16: "16-8", 17: "16-9", 18: "15-9" }, 3: { 8: "18-2", 9: "18-3", 10: "18-4", 11: "18-5", 12: "18-6", 13: "18-7", 14: "17-7", 15: "17-8", 16: "16-8", 17: "16-9", 18: "15-9" }, 4: { 9: "17-3", 10: "17-4", 11: "17-5", 12: "17-6", 13: "17-7", 14: "17-8", 15: "17-9", 16: "16-9", 17: "16-10", 18: "15-10" } },
+  6: { 1: { 7: "18-1", 8: "18-2", 9: "18-3", 10: "18-4", 11: "18-5", 12: "17-5", 13: "17-6", 14: "16-6", 15: "16-7", 16: "15-7", 17: "15-8", 18: "14-8", 19: "14-9" }, 2: { 8: "17-2", 9: "17-3", 10: "17-4", 11: "17-5", 12: "17-6", 13: "17-7", 14: "16-7", 15: "16-8", 16: "15-8", 17: "15-9", 18: "14-9", 19: "14-10" }, 3: { 9: "16-2", 10: "16-3", 11: "16-4", 12: "16-5", 13: "16-6", 14: "16-7", 15: "16-8", 16: "15-8", 17: "15-9", 18: "14-9", 19: "14-10" }, 4: { 10: "15-3", 11: "15-4", 12: "15-5", 13: "15-6", 14: "15-7", 15: "15-8", 16: "15-9", 17: "15-10", 18: "14-10", 19: "14-11" } },
+  7: { 1: { 9: "15-1", 10: "15-2", 11: "15-3", 12: "15-4", 13: "15-5", 14: "15-6", 15: "15-7", 16: "14-7", 17: "14-8", 18: "13-8", 19: "13-9", 20: "12-9" }, 2: { 10: "14-2", 11: "14-3", 12: "14-4", 13: "14-5", 14: "14-6", 15: "14-7", 16: "14-8", 17: "14-9", 18: "13-9", 19: "13-10", 20: "12-10" }, 3: { 11: "13-2", 12: "13-3", 13: "13-4", 14: "13-5", 15: "13-6", 16: "13-7", 17: "13-8", 18: "13-9", 19: "13-10", 20: "12-10" }, 4: { 12: "12-3", 13: "12-4", 14: "12-5", 15: "12-6", 16: "12-7", 17: "12-8", 18: "12-9", 19: "12-10", 20: "12-11" } },
+  8: { 1: { 10: "13-1", 11: "13-2", 12: "13-3", 13: "13-4", 14: "13-5", 15: "13-6", 16: "13-7", 17: "13-8", 18: "12-8", 19: "12-9", 20: "11-9" }, 2: { 11: "12-2", 12: "12-3", 13: "12-4", 14: "12-5", 15: "12-6", 16: "12-7", 17: "12-8", 18: "12-9", 19: "12-10", 20: "11-10" }, 3: { 12: "11-2", 13: "11-3", 14: "11-4", 15: "11-5", 16: "11-6", 17: "11-7", 18: "11-8", 19: "11-9", 20: "11-10" }, 4: { 13: "10-3", 14: "10-4", 15: "10-5", 16: "10-6", 17: "10-7", 18: "10-8", 19: "10-9", 20: "10-10" } },
+  9: { 1: { 12: "10-1", 13: "10-2", 14: "10-3", 15: "10-4", 16: "10-5", 17: "10-6", 18: "10-7", 19: "10-8", 20: "10-9" }, 2: { 13: "9-2", 14: "9-3", 15: "9-4", 16: "9-5", 17: "9-6", 18: "9-7", 19: "9-8", 20: "9-9" }, 3: { 14: "8-2", 15: "8-3", 16: "8-4", 17: "8-5", 18: "8-6", 19: "8-7", 20: "8-8" }, 4: { 15: "7-3", 16: "7-4", 17: "7-5", 18: "7-6", 19: "7-7", 20: "7-8" } },
+  10: { 1: { 13: "8-1", 14: "8-2", 15: "8-3", 16: "8-4", 17: "8-5", 18: "8-6", 19: "8-7", 20: "8-8" }, 2: { 14: "7-2", 15: "7-3", 16: "7-4", 17: "7-5", 18: "7-6", 19: "7-7", 20: "7-8" }, 3: { 15: "6-2", 16: "6-3", 17: "6-4", 18: "6-5", 19: "6-6", 20: "6-7" }, 4: { 16: "5-3", 17: "5-4", 18: "5-5", 19: "5-6", 20: "5-7" } },
+};
+
+const ROLLING_RULES = { levelYears: 5, gradeYears: 2 };
+
+export const POLICY_CONFIG = {
+  POSITION_OPTIONS,
+  getLabel,
+  getNextDuty,
+  EDUCATION,
+  DUTY_LEVEL_RANGE,
+  SALARY_STANDARD,
+  TAOGAO_TABLE,
+  ROLLING_RULES,
+};
+
+/* ---------------- 区间索引 ---------------- */
+
+export function getTaogaoRangeIndex(years: number): number {
+  if (years <= 3) return 1; if (years <= 5) return 2; if (years <= 7) return 3; if (years <= 9) return 4;
+  if (years <= 12) return 5; if (years <= 14) return 6; if (years <= 17) return 7; if (years <= 19) return 8;
+  if (years <= 22) return 9; if (years <= 24) return 10; if (years <= 27) return 11; if (years <= 29) return 12;
+  if (years <= 32) return 13; if (years <= 34) return 14; if (years <= 37) return 15; if (years <= 39) return 16;
+  if (years <= 42) return 17; if (years <= 44) return 18; if (years <= 47) return 19; return 20;
+}
+
+export function getTenureRangeIndex(years: number): number {
+  if (years <= 5) return 1; if (years <= 10) return 2; if (years <= 15) return 3; return 4;
+}
+
+export const TENURE_BANDS = ["1-5年", "6-10年", "11-15年", "16年以上"];
 
 /* ---------------- Calculator ---------------- */
 
-function taogaoByDuty(dutyValue: number, taogaoYears: number, tenure: number) {
-  const [hi, lo] = POLICY_CONFIG.getLevelRange(dutyValue);
-  const sum = taogaoYears + tenure;
-  const level = clamp(hi - Math.floor(sum / 9), lo, hi);
-  const grade = clamp(Math.floor((sum + 2) / 6), 1, 14);
-  return { level, grade };
-}
-
 export const Calculator = {
-  /** 套改年限 = (2006 - 参工年份) + 套改学历年限 - 扣减年限 */
-  calcTaogaoYears(startYear: number, settleYears: number, deductYears: number): number {
-    return 2006 - startYear + settleYears - deductYears;
+  calcTaogaoYears(s: number, e: number, d: number): number {
+    const result = 2006 - s + e - d;
+    return result > 0 ? result + 1 : 1;
   },
 
-  /** 三方案套改比对：按现职 / 按低职 / 按学历，取级别工资最高者为最优 */
-  compareThreeWays(
-    currentDuty: number,
-    lowerDuty: number,
-    eduValue: number,
-    taogaoYears: number,
-    tenureYears: number,
-    lowerTenure: number
-  ): { results: CompareItem[]; best: CompareItem } {
+  lookupTaogaoTable(di: number, ty: number, tenure: number): LG {
+    const tIdx = getTaogaoRangeIndex(ty);
+    let nIdx = getTenureRangeIndex(tenure);
+    if (di === 1 || di === 2) nIdx = 1;
+    const table = TAOGAO_TABLE[di];
+    if (!table || !table[nIdx] || !table[nIdx][tIdx]) return { level: 27, grade: 1 };
+    const parts = table[nIdx][tIdx].split("-");
+    return { level: parseInt(parts[0], 10), grade: parseInt(parts[1], 10) };
+  },
+
+  compareThreeWays(cdi: number, ldi: number, ek: number, ty: number, ct: number, lt: number) {
     const results: CompareItem[] = [];
-
-    const r1 = taogaoByDuty(currentDuty, taogaoYears, tenureYears);
-    results.push({
-      method: "按现职套", duty: POLICY_CONFIG.getLabel(currentDuty),
-      years: taogaoYears, tenure: tenureYears, ...r1, isBest: false,
-    });
-
-    if (lowerDuty > 0) {
-      const r2 = taogaoByDuty(lowerDuty, taogaoYears, lowerTenure);
-      results.push({
-        method: "按低职套", duty: POLICY_CONFIG.getLabel(lowerDuty),
-        years: taogaoYears, tenure: lowerTenure, ...r2, isBest: false,
-      });
+    const cr = this.lookupTaogaoTable(cdi, ty, ct);
+    results.push({ method: "按现职务套改", duty: getLabel(cdi), years: ty, tenure: ct, level: cr.level, grade: cr.grade });
+    if (ldi > 0) {
+      const lr = this.lookupTaogaoTable(ldi, ty, lt);
+      results.push({ method: "按低一职务套改", duty: getLabel(ldi), years: ty, tenure: lt, level: lr.level, grade: lr.grade });
     }
-
-    const edu = POLICY_CONFIG.EDUCATION[eduValue] ?? POLICY_CONFIG.EDUCATION[4];
-    results.push({
-      method: "按学历套", duty: edu.label,
-      years: "—", tenure: "—", ...edu.taogao, isBest: false,
-    });
-
+    const ec = EDUCATION[ek];
+    if (ec) {
+      results.push({ method: "按最高学历保底", duty: ec.name, years: "-", tenure: "-", level: ec.probation.level, grade: ec.probation.grade });
+    }
     let best = results[0];
-    for (const r of results) {
-      if (levelWage(r.level, r.grade) > levelWage(best.level, best.grade)) best = r;
+    for (let i = 1; i < results.length; i++) {
+      const r = results[i];
+      if (r.level < best.level || (r.level === best.level && r.grade > best.grade)) best = r;
     }
-    best.isBest = true;
     return { results, best };
   },
 
-  /** 滚动推演：2年晋一档、5年晋一级（先晋级后晋档，晋级后档次考核重新起算） */
-  calcRolling(level: number, grade: number, fromYear: number, toYear: number, _dutyIndex: number): RollingResult {
-    let L = level, G = grade, ls = fromYear, gs = fromYear;
-    const history: RollingEvent[] = [];
-    for (let y = fromYear + 1; y <= toYear; y++) {
-      if (L > 1 && y - ls >= 5) {
-        const oldW = levelWage(L, G);
-        L = L - 1;
-        G = nearestGrade(L, oldW);
-        ls = y; gs = y;
-        history.push({ year: y, reason: "正常晋升级别", level: L, grade: G, levelStartYear: ls, gradeStartYear: gs });
-      } else if (y - gs >= 2) {
-        G = Math.min(14, G + 1);
-        gs = y;
-        history.push({ year: y, reason: "正常晋升档次", level: L, grade: G, levelStartYear: ls, gradeStartYear: gs });
+  /* 【修复点2】职务晋升跳级时，引入工资表实现"就近就高"套档 */
+  calcPromotion(cl: number, cg: number, npi: number): { level: number; grade: number; forced: boolean } {
+    const range = DUTY_LEVEL_RANGE[npi];
+    if (!range) return { level: cl, grade: cg, forced: false };
+
+    /* 级别高于新职务上限（数字更小），降级别 */
+    if (cl < range.max) return { level: range.max, grade: 1, forced: true };
+
+    /* 级别低于新职务下限（数字更大），升级别（就近就高套档） */
+    if (cl > range.min) {
+      const newLevel = range.min;
+      const oldSalary = this.getSalary(cl, cg);
+      const newLevelGrades = SALARY_STANDARD[newLevel];
+      let newGrade = cg;
+      if (newLevelGrades) {
+        let found = false;
+        for (let g = 1; g < newLevelGrades.length; g++) {
+          if (newLevelGrades[g] >= oldSalary) { newGrade = g; found = true; break; }
+        }
+        if (!found) newGrade = newLevelGrades.length - 1;
+      }
+      return { level: newLevel, grade: newGrade, forced: true };
+    }
+
+    return { level: cl, grade: cg, forced: false };
+  },
+
+  calcRolling(sl: number, sg: number, syIn: number, eyIn: number, di: number): RollingResult {
+    const rules = ROLLING_RULES;
+    let range = DUTY_LEVEL_RANGE[di];
+    if (!range) range = { min: 1, max: 27 };
+    let level = sl;
+    let grade = sg;
+    let sy = parseInt(String(syIn), 10);
+    const ey = parseInt(String(eyIn), 10);
+    const lsy0 = sy;
+    let lsy = sy;
+    let gsy = sy;
+    const history: RollingStep[] = [];
+
+    if (sy >= ey) return { level, grade, levelStartYear: lsy0, gradeStartYear: lsy0, history };
+
+    for (let y = sy + 1; y <= ey; y++) {
+      let changed = false;
+      const reasons: string[] = [];
+
+      /* 1. 五年晋升级别（就近就高套档） */
+      if (y - lsy >= rules.levelYears && level > range.max) {
+        const oldSalary = this.getSalary(level, grade);
+        const newLevel = level - 1;
+        let newGrade = grade;
+        const newLevelGrades = SALARY_STANDARD[newLevel];
+        if (newLevelGrades) {
+          let found = false;
+          for (let g = 1; g < newLevelGrades.length; g++) {
+            if (newLevelGrades[g] >= oldSalary) { newGrade = g; found = true; break; }
+          }
+          if (!found) newGrade = newLevelGrades.length - 1;
+        }
+        level = newLevel;
+        grade = newGrade;
+        lsy = y;
+        gsy = y;
+        changed = true;
+        reasons.push("五年晋升级别（就近就高）");
+      }
+
+      /* 2. 两年晋升级别档次（无上限） */
+      if (y - gsy >= rules.gradeYears) {
+        grade++;
+        gsy = y;
+        changed = true;
+        reasons.push("两年晋升级别档次");
+      }
+
+      if (changed) {
+        history.push({ year: y, level, grade, reason: reasons.join("、"), levelStartYear: lsy, gradeStartYear: gsy });
       }
     }
-    return { level: L, grade: G, levelStartYear: ls, gradeStartYear: gs, history };
+
+    return { level, grade, levelStartYear: lsy, gradeStartYear: gsy, history };
   },
 
-  /** 职务晋升：原级别低于新职务最低级别的强制提档（就近就高），否则晋一档 */
-  calcPromotion(level: number, grade: number, dutyIndex: number): { level: number; grade: number; forced: boolean } {
-    const [hi] = POLICY_CONFIG.getLevelRange(dutyIndex);
-    if (level > hi) {
-      return { level: hi, grade: nearestGrade(hi, levelWage(level, grade)), forced: true };
-    }
-    return { level, grade: Math.min(14, grade + 1), forced: false };
+  getSalary(level: number, grade: number): number {
+    const table = SALARY_STANDARD[level];
+    if (!table || !table[grade]) return 0;
+    return table[grade];
   },
 };
 
-/* ---------------- 人员档案参数（供「全部重算」与测算预填使用） ---------------- */
+export function levelWage(level: number, grade: number): number {
+  return Calculator.getSalary(level, grade);
+}
 
-export const PERSON_CALC_INPUTS: Record<number, CalcInput> = {
-  // 1 钱广才 · 普通工改：1972年参工，本科，乡科级正职2002年任，低职乡科级副职1995年任
-  1: { type: "pre2006", startYear: 1972, eduValue: 4, deductYears: 0, currentDuty: 4, currentDutyYear: 2002, lowerDuty: 3, lowerDutyYear: 1995, isLeader: false, changes: [] },
-  // 2 李卫东 · 低职套1：1975年参工，大专，现职2000年任，低职1992年任
-  2: { type: "pre2006", startYear: 1975, eduValue: 3, deductYears: 0, currentDuty: 4, currentDutyYear: 2000, lowerDuty: 3, lowerDutyYear: 1992, isLeader: false, changes: [] },
-  // 3 王秀英 · 低职套2：1978年参工，本科，工龄间断1年，现职2003年任，低职1994年任
-  3: { type: "pre2006", startYear: 1978, eduValue: 4, deductYears: 1, currentDuty: 4, currentDutyYear: 2003, lowerDuty: 3, lowerDutyYear: 1994, isLeader: false, changes: [] },
-  // 4 刘志远 · 学历套：1985年参工，硕士研究生（未计工龄学习3年），乡科级副职2001年任，低职科员1996年任
-  4: { type: "pre2006", startYear: 1985, eduValue: 6, deductYears: 3, currentDuty: 3, currentDutyYear: 2001, lowerDuty: 2, lowerDutyYear: 1996, isLeader: false, changes: [] },
-  // 5 赵长顺 · 工人（技术等级套改，不适用公务员三方案比对，重算时跳过）
-  // 6 周晓芸 · 新考录：2015年考入，本科，2016年转正定级
-  6: { type: "post2006", startYear: 2015, eduValue: 4, deductYears: 0, currentDuty: 2, currentDutyYear: 2016, lowerDuty: 0, lowerDutyYear: 2016, isLeader: false, changes: [] },
-  // 7 孙立群 · 管理：1988年参工，大专，乡科级正职（领导）2004年任，低职1998年任
-  7: { type: "pre2006", startYear: 1988, eduValue: 3, deductYears: 0, currentDuty: 4, currentDutyYear: 2004, lowerDuty: 3, lowerDutyYear: 1998, isLeader: true, changes: [] },
-  // 8 吴海燕 · 技术（专业技术岗位套改，不适用公务员三方案比对，重算时跳过）
+/* ---------------- 下拉选项（与 salary.js data 一致） ---------------- */
+
+export const EDUCATION_OPTIONS = ["研究生（套改学历6年）", "大学本科（套改学历4年）", "专科（套改学历3年）", "高中（无套改学历）"];
+export const EDUCATION_VALUES = [6, 4, 3, 0];
+
+export const DUTY_OPTIONS = ["办事员", "科员", "乡科级副职", "乡科级正职", "县处级副职", "县处级正职", "厅局级副职", "厅局级正职", "省部级副职", "省部级正职"];
+export const DUTY_VALUES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+export const LOWER_DUTY_OPTIONS = ["无", ...DUTY_OPTIONS];
+export const LOWER_DUTY_VALUES = [0, ...DUTY_VALUES];
+
+/* 职务变动可选：职务 + 职级（与 buildPositionPickerOptions 一致，职级 101 起） */
+export const POSITION_PICKER_LABELS = [
+  ...DUTY_OPTIONS,
+  "二级巡视员", "一级调研员", "二级调研员", "三级调研员", "四级调研员",
+  "一级主任科员", "二级主任科员", "三级主任科员", "四级主任科员",
+  "一级科员", "二级科员",
+];
+export const POSITION_PICKER_VALUES = [
+  ...DUTY_VALUES, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111,
+];
+
+export const RANK_LABELS: Record<number, string> = {
+  101: "二级巡视员", 102: "一级调研员", 103: "二级调研员", 104: "三级调研员", 105: "四级调研员",
+  106: "一级主任科员", 107: "二级主任科员", 108: "三级主任科员", 109: "四级主任科员", 110: "一级科员", 111: "二级科员",
 };
+export const RANK_LEVELS: Record<number, LG> = {
+  101: { level: 13, grade: 6 }, 102: { level: 15, grade: 5 }, 103: { level: 16, grade: 6 },
+  104: { level: 17, grade: 7 }, 105: { level: 18, grade: 8 }, 106: { level: 19, grade: 7 },
+  107: { level: 20, grade: 8 }, 108: { level: 21, grade: 8 }, 109: { level: 22, grade: 9 },
+  110: { level: 24, grade: 9 }, 111: { level: 25, grade: 9 },
+};
+
+/* ---------------- 人员档案 → 测算参数 ---------------- */
+
+export interface CalcInputs {
+  startYear: number;
+  educationIndex: number; // EDUCATION_VALUES 下标
+  deductYears: number;
+  currentDuty: number;
+  currentDutyYear: number;
+  lowerDuty: number;
+  lowerDutyYear: number;
+}
+
+/* 参数经 2006 套改表反推校准，保证"按现职务套改"结果与台账起薪行一致 */
+export const PERSON_CALC_INPUTS: Record<number, CalcInputs | null> = {
+  1: { startYear: 1972, educationIndex: 1, deductYears: 2, currentDuty: 4, currentDutyYear: 2002, lowerDuty: 3, lowerDutyYear: 1995 },
+  2: { startYear: 1975, educationIndex: 2, deductYears: 6, currentDuty: 4, currentDutyYear: 2000, lowerDuty: 3, lowerDutyYear: 1992 },
+  3: { startYear: 1978, educationIndex: 1, deductYears: 6, currentDuty: 4, currentDutyYear: 2003, lowerDuty: 3, lowerDutyYear: 1994 },
+  4: { startYear: 1985, educationIndex: 0, deductYears: 6, currentDuty: 3, currentDutyYear: 2001, lowerDuty: 2, lowerDutyYear: 1996 },
+  5: null, // 机关技术工人序列，不适用公务员 2006 套改
+  6: null, // 2006 年后考录，不适用 2006 套改
+  7: { startYear: 1988, educationIndex: 2, deductYears: 0, currentDuty: 4, currentDutyYear: 2004, lowerDuty: 3, lowerDutyYear: 1998 },
+  8: null, // 专业技术序列，不适用公务员 2006 套改
+};
+
+/* ---------------- 台账核验 ---------------- */
+
+export interface VerifyCell {
+  method: string;
+  ledger: string | null;   // 台账值 "18.7"
+  engine: string;          // 重算值 "18.7"
+  wage: number;
+  match: boolean | null;   // null = 台账无此项
+}
+
+export interface VerifyReport {
+  person: Person;
+  status: "match" | "partial" | "diff" | "skip";
+  skipReason?: string;
+  taogaoYears?: number;
+  cells: VerifyCell[];
+}
+
+const SKIP_REASON: Record<number, string> = {
+  5: "机关技术工人序列，不适用公务员2006套改",
+  6: "2006年后考录人员，按转正定级确定",
+  8: "专业技术序列，不适用公务员2006套改",
+};
+
+function parseLedgerLG(result: string): string | null {
+  const m = /^(\d{1,2})\.(\d{1,2})/.exec(result.trim());
+  return m ? `${m[1]}.${m[2]}` : null;
+}
+
+export function verifyPerson(p: Person): VerifyReport {
+  const inp = PERSON_CALC_INPUTS[p.id];
+  if (!inp) {
+    return { person: p, status: "skip", skipReason: SKIP_REASON[p.id] ?? "无测算参数", cells: [] };
+  }
+  const eduVal = EDUCATION_VALUES[inp.educationIndex];
+  const ec = POLICY_CONFIG.EDUCATION[eduVal];
+  const taogao = Calculator.calcTaogaoYears(inp.startYear, ec ? ec.settleYears : 0, inp.deductYears);
+  const ct = 2006 - inp.currentDutyYear;
+  const lt = inp.lowerDuty > 0 ? 2006 - inp.lowerDutyYear : 0;
+  const comp = Calculator.compareThreeWays(inp.currentDuty, inp.lowerDuty, eduVal, taogao, ct, lt);
+
+  const ledgerRows = [p.tgNow, p.tgLow, p.tgEdu];
+  const cells: VerifyCell[] = comp.results.map((r, i) => {
+    const ledger = parseLedgerLG(ledgerRows[i] ? ledgerRows[i].result : "—");
+    const engine = `${r.level}.${r.grade}`;
+    return {
+      method: r.method,
+      ledger,
+      engine,
+      wage: Calculator.getSalary(r.level, r.grade),
+      match: ledger === null ? null : ledger === engine,
+    };
+  });
+
+  const judged = cells.filter((c) => c.match !== null);
+  const ok = judged.filter((c) => c.match).length;
+  const status: VerifyReport["status"] =
+    judged.length === 0 ? "skip" : ok === judged.length ? "match" : ok > 0 ? "partial" : "diff";
+  return { person: p, status, taogaoYears: taogao, cells };
+}
