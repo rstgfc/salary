@@ -1,0 +1,35 @@
+# ==========================================================================
+#  公务员工资测算系统 · electron-builder 打包配置（Windows exe）
+#  用法：npm run build 后执行  npx electron-builder --win
+# ==========================================================================
+appId: com.gw.salary-estimator
+productName: 公务员工资测算系统
+copyright: Copyright © 2026
+
+directories:
+  output: release          # 打包产物目录
+  buildResources: build    # 图标等资源目录（可放 icon.ico）
+
+asar: true
+
+files:
+  - dist/**
+  - electron/**
+  - package.json
+
+win:
+  target:
+    - target: nsis         # 安装包（可选安装路径）
+      arch: [x64]
+    - target: portable     # 免安装单文件 exe（最适合拷贝测试）
+      arch: [x64]
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: 公务员工资测算系统
+  deleteAppDataOnUninstall: false
+
+portable:
+  artifactName: ${productName}-${version}-便携版.exe

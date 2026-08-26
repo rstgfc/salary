@@ -127,6 +127,19 @@ export function StatusBar({ personCount, unitCount, registered, lastRecalc, onRe
   lastRecalc: string; onRegister: () => void;
 }) {
   const now = useClock();
+  /* 运行在 Electron（exe）内时，主进程会提供真实局域网地址；浏览器预览时静默降级 */
+  const [lanUrl, setLanUrl] = useState("http://192.168.1.106:8080");
+  const [lanLive, setLanLive] = useState(false);
+  useEffect(() => {
+    let stop = false;
+    fetch("/__lan.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!stop && d && d.url) { setLanUrl(d.url); setLanLive(true); }
+      })
+      .catch(() => { /* 浏览器预览环境：保持占位地址 */ });
+    return () => { stop = true; };
+  }, []);
   return (
     <div className="h-[26px] shrink-0 flex items-center gap-3 px-3 border-t border-[var(--line)] bg-[var(--bg-1)] text-[11px] text-[var(--tx-2)] select-none">
       <span className="font-mono2 text-[var(--tx-3)]">BUILD 2026.01</span>
@@ -140,10 +153,10 @@ export function StatusBar({ personCount, unitCount, registered, lastRecalc, onRe
         {registered ? `已注册 ${registered.code}` : "试用版 · 点击注册"}
       </button>
       <span className="w-px h-3.5 bg-[var(--line)]" />
-      <span className="flex items-center gap-1.5">
-        <span className="w-1.5 h-1.5 rounded-full bg-[#30d158] live-dot" />
+      <span className="flex items-center gap-1.5" title={lanLive ? "主进程 HTTP 服务运行中，局域网内可用浏览器访问" : "浏览器预览模式（exe 运行时将显示真实地址）"}>
+        <span className={`w-1.5 h-1.5 rounded-full ${lanLive ? "bg-[#30d158] live-dot" : "bg-[var(--tx-3)]"}`} />
         局域网服务
-        <span className="font-mono2 text-[var(--acc)]">http://192.168.1.106:8080</span>
+        <span className={`font-mono2 ${lanLive ? "text-[#1f8f4d] dark:text-[#7ede99]" : "text-[var(--acc)]"}`}>{lanUrl}</span>
       </span>
       <span className="w-px h-3.5 bg-[var(--line)]" />
       <span>人员 <b className="font-mono2 text-[var(--tx-1)]">{personCount}</b></span>
