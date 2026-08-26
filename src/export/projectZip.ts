@@ -8,9 +8,10 @@ const RAW_FILES = import.meta.glob(
   [
     "/src/**/*.{ts,tsx,css}",
     "/electron/**/*.{cjs,js,json}",
+    "/public/**/*.{html,ico,png,svg}",
     "/index.html",
     "/package.json",
-    "/vite.config.ts",
+    "/vite.config.{js,ts}",
     "/electron-builder.yml",
     "/README.md",
     "/tsconfig.json",
