@@ -1,15 +1,53 @@
 @import "tailwindcss";
 
+/* dark: 变体绑定到 data-theme 属性（默认日间，手动切换夜间） */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ================= 主题令牌：默认日间（mac 风格浅色） ================= */
 :root {
   --acc: #0a84ff;
+  --bg-0: #e9edf3;            /* 窗口底 */
+  --bg-1: #f5f7fa;            /* 侧栏 / 表格底 */
+  --bg-2: #ffffff;            /* 卡片 */
+  --bg-3: #eef1f6;            /* 输入 / 凹槽 */
+  --line: #d5dae3;
+  --line-2: #e5e9f0;
+  --head: #f3f5f9;            /* 表头 / 卡头 */
+  --hov: rgba(30, 64, 120, 0.055);
+  --sel: rgba(10, 132, 255, 0.10);
+  --sel-strong: rgba(10, 132, 255, 0.16);
+  --tx-1: #1d2430;
+  --tx-2: #5b6575;
+  --tx-3: #939dae;
+  --sb: #c2c9d6;              /* 滚动条 */
+  --amb-1: rgba(10, 132, 255, 0.07);
+  --amb-2: rgba(48, 209, 88, 0.05);
+  --amb-3: rgba(90, 200, 250, 0.06);
+  --scan: rgba(10, 132, 255, 0.55);
+  --shadow-card: 0 1px 2px rgba(23, 36, 66, 0.06), 0 10px 28px rgba(23, 36, 66, 0.08);
+}
+
+/* ================= 夜间 ================= */
+[data-theme="dark"] {
   --bg-0: #101216;
   --bg-1: #171a20;
   --bg-2: #1d2129;
-  --bg-3: #232833;
+  --bg-3: #14171d;
   --line: #2c323e;
+  --line-2: rgba(255, 255, 255, 0.045);
+  --head: #242935;
+  --hov: rgba(255, 255, 255, 0.045);
+  --sel: rgba(10, 132, 255, 0.13);
+  --sel-strong: rgba(10, 132, 255, 0.22);
   --tx-1: #e8eaf0;
   --tx-2: #9aa3b2;
   --tx-3: #667082;
+  --sb: #333a47;
+  --amb-1: rgba(10, 132, 255, 0.09);
+  --amb-2: rgba(48, 209, 88, 0.06);
+  --amb-3: rgba(90, 200, 250, 0.05);
+  --scan: rgba(90, 200, 250, 0.7);
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 10px 26px rgba(0, 0, 0, 0.28);
 }
 
 * { box-sizing: border-box; }
@@ -17,19 +55,21 @@
 body {
   font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
   font-size: 13px;
+  color: var(--tx-1);
+  background: var(--bg-0);
   -webkit-font-smoothing: antialiased;
 }
 
 .font-disp { font-family: "Chakra Petch", "Noto Sans SC", sans-serif; }
 .font-mono2 { font-family: "JetBrains Mono", "Noto Sans SC", monospace; font-variant-numeric: tabular-nums; }
 
-::selection { background: rgba(10, 132, 255, 0.35); }
+::selection { background: rgba(10, 132, 255, 0.32); }
 
 /* ---------- scrollbars ---------- */
 *::-webkit-scrollbar { width: 9px; height: 9px; }
 *::-webkit-scrollbar-track { background: transparent; }
-*::-webkit-scrollbar-thumb { background: #333a47; border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
-*::-webkit-scrollbar-thumb:hover { background: #485265; border: 2px solid transparent; background-clip: content-box; }
+*::-webkit-scrollbar-thumb { background: var(--sb); border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
+*::-webkit-scrollbar-thumb:hover { background: var(--acc); border: 2px solid transparent; background-clip: content-box; }
 *::-webkit-scrollbar-corner { background: transparent; }
 
 /* ---------- animations ---------- */
@@ -53,9 +93,6 @@ body {
 }
 .anim-shake { animation: shake-x 0.5s ease both; }
 
-@keyframes row-flash { 0% { background: rgba(10,132,255,0.22); } 100% { background: transparent; } }
-.anim-rowflash { animation: row-flash 1.1s ease-out both; }
-
 @keyframes stripes { to { background-position: 22px 0; } }
 .prog-stripes {
   background-image: linear-gradient(
@@ -76,45 +113,83 @@ body {
 .live-dot { animation: live-ping 2s ease-out infinite; }
 
 @keyframes scan { 0% { transform: translateX(-120%); } 100% { transform: translateX(340%); } }
-.title-scan { animation: scan 5.5s ease-in-out infinite; }
+.title-scan { animation: scan 5.5s ease-in-out infinite; background: linear-gradient(90deg, transparent, var(--scan), transparent); }
 
 @keyframes tick-in { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: scale(1); } }
 .anim-tick { animation: tick-in 0.3s cubic-bezier(0.2, 0.7, 0.3, 1.4) both; }
 
-/* ---------- app background layers ---------- */
+@keyframes hero-glow {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* ---------- app background ---------- */
 .app-bg {
   background:
-    radial-gradient(900px 420px at 12% -8%, rgba(10, 132, 255, 0.09), transparent 62%),
-    radial-gradient(820px 460px at 96% 112%, rgba(48, 209, 88, 0.06), transparent 60%),
-    radial-gradient(640px 300px at 78% -10%, rgba(90, 200, 250, 0.05), transparent 60%),
-    linear-gradient(180deg, #14161c 0%, #101216 100%);
+    radial-gradient(900px 420px at 12% -8%, var(--amb-1), transparent 62%),
+    radial-gradient(820px 460px at 96% 112%, var(--amb-2), transparent 60%),
+    radial-gradient(640px 300px at 78% -10%, var(--amb-3), transparent 60%),
+    linear-gradient(180deg, var(--bg-0), var(--bg-0));
 }
 
 .card-panel {
-  background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0) 42%), var(--bg-2);
+  background: var(--bg-2);
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 10px 26px rgba(0,0,0,0.28);
+  box-shadow: var(--shadow-card);
 }
 
 .card-head {
   border-bottom: 1px solid var(--line);
-  background: linear-gradient(90deg, rgba(10,132,255,0.09), rgba(10,132,255,0) 55%);
+  background: linear-gradient(90deg, var(--sel), transparent 58%), var(--head);
 }
 
 .menu-btn { transition: background 0.14s ease, color 0.14s ease, transform 0.1s ease; }
-.menu-btn:hover { background: rgba(255,255,255,0.07); }
-.menu-btn:active { transform: translateY(1px); background: rgba(255,255,255,0.11); }
+.menu-btn:hover { background: var(--hov); }
+.menu-btn:active { transform: translateY(1px); }
 
 .list-row { transition: background 0.13s ease, border-color 0.13s ease; }
 
 input, select, textarea { outline: none; }
 .field {
-  background: #14171d;
+  background: var(--bg-3);
   border: 1px solid var(--line);
   border-radius: 7px;
   color: var(--tx-1);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
-.field:focus { border-color: rgba(10,132,255,0.7); box-shadow: 0 0 0 3px rgba(10,132,255,0.18); }
-.field::placeholder { color: #525c6e; }
+.field:focus { border-color: rgba(10, 132, 255, 0.65); box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.16); }
+.field::placeholder { color: var(--tx-3); }
+select.field { appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--tx-3) 50%), linear-gradient(135deg, var(--tx-3) 50%, transparent 50%); background-position: calc(100% - 14px) 55%, calc(100% - 9px) 55%; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 24px; }
+
+/* ---------- 分段选择器 ---------- */
+.seg { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border-radius: 9px; background: var(--bg-3); border: 1px solid var(--line); }
+.seg-item {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 26px; padding: 0 12px; border-radius: 7px;
+  font-size: 12px; color: var(--tx-2); cursor: pointer; white-space: nowrap;
+  transition: all 0.16s ease; border: 1px solid transparent;
+}
+.seg-item:hover { color: var(--tx-1); }
+.seg-item.active {
+  background: var(--bg-2); color: var(--acc); font-weight: 600;
+  border-color: var(--line);
+  box-shadow: 0 1px 3px rgba(20, 40, 80, 0.12);
+}
+[data-theme="dark"] .seg-item.active { box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4); }
+
+/* ---------- 渐变结果头（两主题通用） ---------- */
+.hero-grad {
+  background: linear-gradient(120deg, #1d63dc, #0a84ff 45%, #19b8f0);
+  background-size: 200% 200%;
+  animation: hero-glow 6s ease infinite;
+  color: #fff;
+}
+
+.tbl-head th {
+  position: sticky; top: 0; z-index: 10;
+  background: var(--head);
+  border-bottom: 1px solid var(--line);
+  font-size: 10.5px; font-weight: 500; color: var(--tx-2);
+  white-space: nowrap;
+}

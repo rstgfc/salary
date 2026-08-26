@@ -10,16 +10,24 @@
       href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700;900&display=swap"
       rel="stylesheet"
     />
+    <script>
+      /* 主题预载：默认日间模式 */
+      (function () {
+        var t = "light";
+        try { t = localStorage.getItem("gw_salary_theme") === "dark" ? "dark" : "light"; } catch (e) {}
+        document.documentElement.setAttribute("data-theme", t);
+      })();
+    </script>
     <style>
       html, body, #root {
         margin: 0;
         padding: 0;
         width: 100%;
         height: 100%;
-        background-color: #101216;
-        color: #e8eaf0;
         overflow: hidden;
       }
+      html { background-color: #e9edf3; color: #1d2430; }
+      html[data-theme="dark"] { background-color: #101216; color: #e8eaf0; }
     </style>
   </head>
   <body>

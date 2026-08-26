@@ -1,10 +1,13 @@
 import React, { useState } from "react";
 import {
-  AllowanceItem, DUTY_TABLE, POSITION_LEVELS, Person, RANK_TABLE, Unit,
-  defaultAllowances, fmt, lastOf,
+  AllowanceItem, Person, Unit, defaultAllowances, fmt, lastOf,
 } from "../data";
 import { Icon } from "./icons";
-import { levelWage } from "../core/calculator";
+import { POLICY_CONFIG } from "../core/calculator";
+import {
+  CONVERSION_TABLE_2006, LEVEL_SALARY, POSITIONS, POSITION_LEVEL_MAP,
+  POSITION_SALARY, LOWER_POSITION, TAOGAO_BANDS, TENURE_ROWS,
+} from "../core/salarydata";
 import { Btn, Modal } from "./modals";
 
 /* ================= 计算器 ================= */
@@ -18,85 +21,90 @@ export function CalcModal({ onClose }: { onClose: () => void }) {
   const input = (d: string) => {
     if (fresh) { setDisp(d === "." ? "0." : d); setFresh(false); return; }
     if (d === "." && disp.includes(".")) return;
-    if (disp.replace("-", "").replace(".", "").length >= 12) return;
+    if (disp.length > 12) return;
     setDisp(disp === "0" && d !== "." ? d : disp + d);
   };
-  const apply = (a: number, b: number, o: string) =>
-    o === "+" ? a + b : o === "−" ? a - b : o === "×" ? a * b : b === 0 ? NaN : a / b;
-  const format = (n: number) => {
-    if (Number.isNaN(n)) return "错误";
-    const r = parseFloat(n.toPrecision(12));
-    return String(r);
+
+  const apply = (a: number, b: number, o: string): number => {
+    switch (o) {
+      case "+": return a + b;
+      case "−": return a - b;
+      case "×": return a * b;
+      case "÷": return b === 0 ? NaN : a / b;
+      default: return b;
+    }
   };
-  const chooseOp = (o: string) => {
+
+  const setOperator = (o: string) => {
     const cur = parseFloat(disp);
     if (acc !== null && op && !fresh) {
       const r = apply(acc, cur, op);
-      setAcc(r); setDisp(format(r));
-    } else setAcc(cur);
+      setAcc(r); setDisp(String(round2(r))); setTape((t) => [...t, `${round2(acc)} ${op} ${round2(cur)} = ${round2(r)}`].slice(-8));
+    } else {
+      setAcc(cur);
+    }
     setOp(o); setFresh(true);
   };
+
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+
   const equals = () => {
     if (acc === null || !op) return;
     const cur = parseFloat(disp);
     const r = apply(acc, cur, op);
-    setTape((t) => [`${format(acc)} ${op} ${format(cur)} = ${format(r)}`, ...t].slice(0, 8));
-    setDisp(format(r)); setAcc(null); setOp(null); setFresh(true);
+    setTape((t) => [...t, `${round2(acc)} ${op} ${round2(cur)} = ${round2(r)}`].slice(-8));
+    setDisp(String(round2(r))); setAcc(null); setOp(null); setFresh(true);
   };
+
   const clear = () => { setDisp("0"); setAcc(null); setOp(null); setFresh(true); };
 
-  const Key = ({ label, onClick, kind = "num", span }: {
-    label: string; onClick: () => void; kind?: "num" | "op" | "fn" | "eq"; span?: boolean;
-  }) => {
-    const cls = {
-      num: "bg-[#262b35] hover:bg-[#303743] text-[#e2e6ee]",
-      op: "bg-[rgba(10,132,255,.16)] hover:bg-[rgba(10,132,255,.28)] text-[#6db1ff]",
-      fn: "bg-[#333a47] hover:bg-[#3d4553] text-[#c3cad6]",
-      eq: "bg-[#0a84ff] hover:bg-[#3395ff] text-white shadow-[0_4px_14px_rgba(10,132,255,.35)]",
-    }[kind];
-    return (
-      <button onClick={onClick}
-        className={`h-10 rounded-lg text-[14px] font-mono2 font-semibold transition-all active:scale-[.94] ${cls} ${span ? "col-span-2" : ""}`}>
-        {label}
-      </button>
-    );
-  };
+  const keys: { k: string; act: () => void; cls?: string }[] = [
+    { k: "C", act: clear, cls: "text-[#d70015] dark:text-[#ff8b84]" },
+    { k: "±", act: () => setDisp(disp.startsWith("-") ? disp.slice(1) : disp === "0" ? "0" : "-" + disp) },
+    { k: "%", act: () => setDisp(String(round2(parseFloat(disp) / 100))) },
+    { k: "÷", act: () => setOperator("÷"), cls: "op" },
+    { k: "7", act: () => input("7") }, { k: "8", act: () => input("8") }, { k: "9", act: () => input("9") },
+    { k: "×", act: () => setOperator("×"), cls: "op" },
+    { k: "4", act: () => input("4") }, { k: "5", act: () => input("5") }, { k: "6", act: () => input("6") },
+    { k: "−", act: () => setOperator("−"), cls: "op" },
+    { k: "1", act: () => input("1") }, { k: "2", act: () => input("2") }, { k: "3", act: () => input("3") },
+    { k: "+", act: () => setOperator("+"), cls: "op" },
+    { k: "0", act: () => input("0") }, { k: ".", act: () => input(".") },
+    { k: "=", act: equals, cls: "eq" },
+  ];
 
   return (
     <Modal title="计算器" icon="calc" onClose={onClose} w={520}
-      footer={<><Btn onClick={() => setTape([])}>清空记录</Btn><Btn kind="primary" onClick={onClose}>完成</Btn></>}>
-      <div className="grid grid-cols-[1fr_190px] gap-3">
+      footer={<><span className="mr-auto text-[10.5px] text-[var(--tx-3)]">可用于增资额 / 月均奖金等辅助核算</span><Btn onClick={onClose}>关闭</Btn></>}>
+      <div className="grid grid-cols-[1fr_240px] gap-3">
         <div>
-          <div className="rounded-lg border border-[#2c323e] bg-[#14171d] px-3.5 py-2.5">
-            <p className="h-4 text-right font-mono2 text-[11px] text-[#5d6779]">
-              {acc !== null && op ? `${format(acc)} ${op}` : ""}
-            </p>
-            <p className="text-right font-mono2 text-[27px] font-semibold text-[#e8eaf0] truncate leading-tight">{disp}</p>
+          <div className="rounded-lg border border-[var(--line)] bg-[var(--bg-3)] px-3 py-2.5 text-right">
+            <div className="text-[10.5px] text-[var(--tx-3)] font-mono2 h-4">
+              {acc !== null && op ? `${round2(acc)} ${op}` : ""}
+            </div>
+            <div className="font-mono2 text-[26px] font-semibold text-[var(--tx-1)] truncate">{disp}</div>
           </div>
           <div className="mt-2.5 grid grid-cols-4 gap-1.5">
-            <Key label="C" kind="fn" onClick={clear} />
-            <Key label="±" kind="fn" onClick={() => setDisp(disp.startsWith("-") ? disp.slice(1) : disp === "0" ? disp : "-" + disp)} />
-            <Key label="%" kind="fn" onClick={() => setDisp(format(parseFloat(disp) / 100))} />
-            <Key label="÷" kind="op" onClick={() => chooseOp("÷")} />
-            <Key label="7" onClick={() => input("7")} /><Key label="8" onClick={() => input("8")} /><Key label="9" onClick={() => input("9")} />
-            <Key label="×" kind="op" onClick={() => chooseOp("×")} />
-            <Key label="4" onClick={() => input("4")} /><Key label="5" onClick={() => input("5")} /><Key label="6" onClick={() => input("6")} />
-            <Key label="−" kind="op" onClick={() => chooseOp("−")} />
-            <Key label="1" onClick={() => input("1")} /><Key label="2" onClick={() => input("2")} /><Key label="3" onClick={() => input("3")} />
-            <Key label="+" kind="op" onClick={() => chooseOp("+")} />
-            <Key label="0" span onClick={() => input("0")} />
-            <Key label="." onClick={() => input(".")} />
-            <Key label="=" kind="eq" onClick={equals} />
+            {keys.map((b) => (
+              <button key={b.k} onClick={b.act}
+                className={`h-10 rounded-lg border text-[15px] font-mono2 transition-all active:scale-95 ${
+                  b.cls === "eq"
+                    ? "bg-[#0a84ff] border-transparent text-white hover:bg-[#3395ff] shadow-[0_4px_12px_rgba(10,132,255,.3)]"
+                    : b.cls === "op"
+                      ? "border-[var(--line)] bg-[var(--sel)] text-[var(--acc)] hover:bg-[var(--sel-strong)]"
+                      : `border-[var(--line)] bg-[var(--bg-2)] hover:bg-[var(--hov)] ${b.cls ?? "text-[var(--tx-1)]"}`
+                }`}>
+                {b.k}
+              </button>
+            ))}
           </div>
         </div>
-        <div className="rounded-lg border border-[#2c323e] bg-[#191d24] flex flex-col overflow-hidden">
-          <p className="px-3 h-8 flex items-center gap-1.5 text-[10.5px] text-[#8b95a7] border-b border-[#2c323e]">
-            <Icon name="clock" size={11} /> 计算记录
-          </p>
-          <div className="flex-1 overflow-auto p-2 space-y-1">
-            {tape.length === 0 && <p className="text-[10.5px] text-[#5d6779] text-center pt-6">暂无记录</p>}
+        <div className="rounded-lg border border-[var(--line)] bg-[var(--bg-3)] p-2.5 flex flex-col min-h-[240px]">
+          <p className="text-[10.5px] text-[var(--tx-3)] mb-1.5 flex items-center gap-1"><Icon name="clock" size={11} />计算记录</p>
+          <div className="flex-1 overflow-auto flex flex-col gap-1">
+            {tape.length === 0 && <p className="text-[11px] text-[var(--tx-3)] py-4 text-center">暂无记录</p>}
             {tape.map((t, i) => (
-              <p key={i} className="font-mono2 text-[10.5px] text-[#9aa3b2] bg-white/[.03] rounded px-2 py-1.5 truncate">{t}</p>
+              <p key={i} className="font-mono2 text-[11px] text-[var(--tx-2)] bg-[var(--bg-2)] border border-[var(--line-2)] rounded px-2 py-1">{t}</p>
             ))}
           </div>
         </div>
@@ -108,221 +116,247 @@ export function CalcModal({ onClose }: { onClose: () => void }) {
 /* ================= 津贴编辑输出 ================= */
 export function AllowanceModal({ person, unitName, onClose, onToast }: {
   person: Person; unitName: string; onClose: () => void;
-  onToast: (type: "success" | "error" | "info", msg: string) => void;
+  onToast: (t: "success" | "error" | "info", m: string) => void;
 }) {
   const [items, setItems] = useState<AllowanceItem[]>(() => defaultAllowances(person));
   const last = lastOf(person);
   const total = items.reduce((s, i) => s + (i.std || 0), 0);
   const monthly = last.pw + last.lw + total;
 
-  const setStd = (id: string, v: string) =>
-    setItems((arr) => arr.map((i) => (i.id === id ? { ...i, std: Math.max(0, Number(v) || 0) } : i)));
+  const setStd = (id: string, v: number) =>
+    setItems((arr) => arr.map((i) => (i.id === id ? { ...i, std: Math.max(0, v) } : i)));
 
-  const output = async () => {
-    const lines = [
-      "【津贴编辑输出】公务员工资测算系统 V8.2",
-      `单位：[${person.unitId}] ${unitName}`,
-      `人员：编号${person.id} ${person.name}（${person.tag} · ${person.employ}）`,
-      `现执行基本工资：职务 ¥${fmt(last.pw)} + 级别 ¥${fmt(last.lw)} = ¥${fmt(last.pw + last.lw)}`,
-      "----------------------------------------",
-      ...items.map((i) => `${i.name}（${i.base}）：¥${fmt(i.std)} /月`),
-      "----------------------------------------",
-      `津贴补贴小计：¥${fmt(total)} /月`,
-      `月度合计发放：¥${fmt(monthly)} /月`,
-      `输出时间：${new Date().toLocaleString("zh-CN")}`,
-    ].join("\n");
+  const output = () => {
+    let text = `【${person.name}（编号${person.id}）津贴补贴标准表】\n单位：[${person.unitId}] ${unitName}\n`;
+    text += `基本工资：职务 ¥${last.pw} + 级别 ¥${last.lw} = ¥${last.pw + last.lw}\n`;
+    text += "----------------------------------------\n";
+    items.forEach((i) => { text += `${i.name}（${i.base}）\t¥${i.std}\n`; });
+    text += "----------------------------------------\n";
+    text += `津贴合计\t¥${total}\n月应发合计\t¥${monthly}\n`;
+    return text;
+  };
+
+  const doOutput = async () => {
     try {
-      await navigator.clipboard.writeText(lines);
-      onToast("success", "津贴方案已输出到剪贴板，可粘贴至报表或小程序后台");
+      await navigator.clipboard.writeText(output());
+      onToast("success", `已输出「${person.name}」津贴标准表到剪贴板（¥${monthly}/月）`);
     } catch {
-      const ta = document.createElement("textarea");
-      ta.value = lines;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-      onToast("success", "津贴方案已输出到剪贴板");
+      onToast("error", "输出失败：剪贴板不可用");
     }
   };
 
   return (
     <Modal title={`津贴编辑输出 · ${person.name}`} icon="allowance" onClose={onClose} w={560}
-      footer={
-        <>
-          <Btn onClick={() => setItems(defaultAllowances(person))}>恢复默认</Btn>
-          <Btn onClick={onClose}>关闭</Btn>
-          <Btn kind="primary" onClick={output}><span className="flex items-center gap-1.5"><Icon name="copy" size={12} />输出</span></Btn>
-        </>
-      }>
-      <div className="rounded-lg border border-[#2c323e] overflow-hidden">
-        <table className="w-full text-[12px]">
-          <thead>
-            <tr>
-              {["津贴项目", "计发依据", "月标准（元）"].map((h) => (
-                <th key={h} className="px-3 py-1.5 text-left text-[10.5px] font-medium text-[#8b95a7] bg-[#242935] border-b border-[#333a47]">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((i) => (
-              <tr key={i.id} className="border-b border-white/[.04] hover:bg-white/[.03] transition-colors">
-                <td className="px-3 py-1.5 text-[#e2e6ee]">{i.name}</td>
-                <td className="px-3 py-1.5 text-[#8b95a7]">{i.base}</td>
-                <td className="px-3 py-1.5">
-                  <input type="number" min={0} value={i.std}
-                    onChange={(e) => setStd(i.id, e.target.value)}
-                    className="field w-24 h-7 px-2 text-right font-mono2 text-[12.5px]" />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        {[
-          ["基本工资", last.pw + last.lw, "#c3cad6"],
-          ["津贴小计", total, "#8ed6fa"],
-          ["月度合计", monthly, "#7ede99"],
-        ].map(([k, v, c]) => (
-          <div key={k as string} className="rounded-lg border border-[#2c323e] bg-[#191d24] px-3 py-2.5">
-            <p className="text-[10.5px] text-[#667082]">{k}</p>
-            <p className="font-mono2 text-[16px] font-semibold mt-0.5" style={{ color: c as string }}>¥{fmt(v as number)}</p>
+      footer={<><Btn onClick={onClose}>关闭</Btn><Btn kind="primary" onClick={doOutput}>输出到剪贴板</Btn></>}>
+      <div className="rounded-lg border border-[var(--line)] divide-y divide-[var(--line-2)]">
+        {items.map((i) => (
+          <div key={i.id} className="flex items-center gap-3 px-3 py-2">
+            <div className="flex-1 min-w-0">
+              <p className="text-[12.5px] text-[var(--tx-1)]">{i.name}</p>
+              <p className="text-[10.5px] text-[var(--tx-3)]">计发口径：{i.base}</p>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] text-[var(--tx-3)]">¥</span>
+              <input type="number" min={0} value={i.std}
+                onChange={(e) => setStd(i.id, Number(e.target.value) || 0)}
+                className="field w-[92px] h-7 px-2 text-right font-mono2 text-[12.5px]" />
+            </div>
           </div>
         ))}
       </div>
-      <p className="mt-2.5 text-[10.5px] text-[#5d6779]">
-        提示：修改后的标准仅保存在本次会话，点击「输出」生成文本结果，供小程序后台或报表使用。
-      </p>
+      <div className="mt-3 flex items-center justify-between rounded-lg border border-[var(--line)] bg-[var(--bg-3)] px-3 py-2.5">
+        <span className="text-[12px] text-[var(--tx-2)]">月应发合计（基本工资 + 津贴）</span>
+        <span className="font-mono2 text-[16px] font-bold text-[var(--acc)]">¥{fmt(monthly)}<span className="text-[10px] text-[var(--tx-3)] font-normal"> /月</span></span>
+      </div>
     </Modal>
   );
 }
 
 /* ================= 目录数据 ================= */
-type CatalogTab = "unit" | "duty" | "rank" | "position" | "core";
+type CatalogTab = "unit" | "duty" | "rank06" | "rank15" | "taogao" | "position";
+
+const TH = "tbl-head px-2.5 py-1.5 text-left";
+const TH_R = "tbl-head px-2 py-1.5 text-right";
 
 export function CatalogModal({ units, persons, onClose }: {
   units: Unit[]; persons: Person[]; onClose: () => void;
 }) {
-  const [tab, setTab] = useState<CatalogTab>("rank");
+  const [tab, setTab] = useState<CatalogTab>("taogao");
+  const [taogaoDuty, setTaogaoDuty] = useState("乡科级正职");
   const tabs: [CatalogTab, string][] = [
-    ["unit", "单位目录"], ["duty", "职务工资表"], ["rank", "级别工资表"], ["position", "职务层次表"], ["core", "核心速算表"],
+    ["unit", "单位目录"], ["duty", "职务工资表"], ["rank06", "级别工资(2006)"],
+    ["rank15", "级别工资(2015)"], ["taogao", "套改对照表"], ["position", "职务层次表"],
   ];
 
+  const maxGrades06 = 14;
+
   return (
-    <Modal title="目录数据" icon="catalog" onClose={onClose} w={680}
-      footer={<><span className="mr-auto text-[11px] text-[#667082]">数据基准：2006 年工资制度改革 · 仅作测算参考</span><Btn kind="primary" onClick={onClose}>关闭</Btn></>}>
-      <div className="flex items-center gap-1 border-b border-[#2c323e]">
+    <Modal title="目录数据" icon="catalog" onClose={onClose} w={720}
+      footer={<><span className="mr-auto text-[11px] text-[var(--tx-3)]">依据：国办发〔2006〕22号 · 国办发〔2015〕3号 · 仅供测算参考</span><Btn kind="primary" onClick={onClose}>关闭</Btn></>}>
+      <div className="flex items-center gap-1 border-b border-[var(--line)] overflow-x-auto">
         {tabs.map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)}
-            className={`px-3 h-8 text-[12px] rounded-t-md border-b-2 transition ${
+            className={`px-3 h-8 text-[12px] rounded-t-md border-b-2 transition whitespace-nowrap ${
               tab === k
-                ? "border-[#0a84ff] text-[#6db1ff] bg-[rgba(10,132,255,.06)]"
-                : "border-transparent text-[#8b95a7] hover:text-[#e2e6ee]"
+                ? "border-[var(--acc)] text-[var(--acc)] bg-[var(--sel)]"
+                : "border-transparent text-[var(--tx-2)] hover:text-[var(--tx-1)]"
             }`}>
             {label}
           </button>
         ))}
       </div>
 
-      <div className="mt-3 rounded-lg border border-[#2c323e] overflow-hidden">
-        <div className="max-h-[380px] overflow-auto">
+      <div className="mt-3 rounded-lg border border-[var(--line)] overflow-hidden">
+        <div className="max-h-[400px] overflow-auto">
+          {/* 单位目录 */}
           {tab === "unit" && (
             <table className="w-full text-[12px]">
-              <thead><tr>{["单位编号", "单位名称", "人员数"].map((h) => (
-                <th key={h} className="sticky top-0 px-3 py-1.5 text-left text-[10.5px] font-medium text-[#8b95a7] bg-[#242935] border-b border-[#333a47]">{h}</th>))}
-              </tr></thead>
+              <thead><tr>{["单位编号", "单位名称", "人员数"].map((h) => <th key={h} className={TH}>{h}</th>)}</tr></thead>
               <tbody>
                 {units.map((u) => (
-                  <tr key={u.id} className="border-b border-white/[.04] hover:bg-white/[.03]">
-                    <td className="px-3 py-2 font-mono2 text-[#8ed6fa]">[{u.id}]</td>
-                    <td className="px-3 py-2 text-[#e2e6ee]">{u.name}</td>
-                    <td className="px-3 py-2 font-mono2 text-[#8b95a7]">{persons.filter((p) => p.unitId === u.id).length} 人</td>
+                  <tr key={u.id} className="border-b border-[var(--line-2)] hover:bg-[var(--hov)]">
+                    <td className="px-3 py-2 font-mono2 text-[var(--acc)]">[{u.id}]</td>
+                    <td className="px-3 py-2 text-[var(--tx-1)]">{u.name}</td>
+                    <td className="px-3 py-2 font-mono2 text-[var(--tx-2)]">{persons.filter((p) => p.unitId === u.id).length} 人</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
+
+          {/* 职务工资表（2015 标准，领导 / 非领导） */}
           {tab === "duty" && (
             <table className="w-full text-[12px]">
-              <thead><tr>{["职务", "职务工资（元/月）", "对应级别"].map((h) => (
-                <th key={h} className="sticky top-0 px-3 py-1.5 text-left text-[10.5px] font-medium text-[#8b95a7] bg-[#242935] border-b border-[#333a47]">{h}</th>))}
+              <thead><tr>
+                <th className={TH}>职务层次</th>
+                <th className={TH_R}>领导职务（元/月）</th>
+                <th className={TH_R}>非领导职务（元/月）</th>
+                <th className={TH}>低一级职务</th>
               </tr></thead>
               <tbody>
-                {DUTY_TABLE.map(([d, w, l], i) => (
-                  <tr key={d} className={`border-b border-white/[.04] ${i % 2 === 1 ? "bg-white/[.015]" : ""} hover:bg-[rgba(10,132,255,.05)]`}>
-                    <td className="px-3 py-1.5 text-[#e2e6ee]">{d}</td>
-                    <td className="px-3 py-1.5 font-mono2 text-[#c3cad6] text-right">{fmt(w)}</td>
-                    <td className="px-3 py-1.5 font-mono2 text-[#8b95a7]">{l}</td>
-                  </tr>
-                ))}
+                {[...POSITIONS].reverse().map((pos, i) => {
+                  const s = POSITION_SALARY[pos];
+                  return (
+                    <tr key={pos} className={`border-b border-[var(--line-2)] ${i % 2 === 1 ? "bg-[var(--hov)]" : ""} hover:bg-[var(--sel)]`}>
+                      <td className="px-3 py-1.5 text-[var(--tx-1)]">{pos}</td>
+                      <td className="px-2 py-1.5 text-right font-mono2 text-[var(--tx-1)]">{s?.leader != null ? fmt(s.leader) : "—"}</td>
+                      <td className="px-2 py-1.5 text-right font-mono2 text-[var(--tx-1)]">{s?.nonLeader != null ? fmt(s.nonLeader) : "—"}</td>
+                      <td className="px-3 py-1.5 text-[var(--tx-2)]">{LOWER_POSITION[pos] ?? "—"}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
-          {tab === "rank" && (
-            <table className="w-full text-[12px]">
-              <thead><tr>{["级别", "", "档次 1", "档次 2", "档次 3", "档次 4"].map((h, i) => (
-                <th key={i} className={`sticky top-0 px-3 py-1.5 text-[10.5px] font-medium text-[#8b95a7] bg-[#242935] border-b border-[#333a47] ${i >= 2 ? "text-right" : "text-left"}`}>{h}</th>))}
-              </tr></thead>
-              <tbody>
-                {RANK_TABLE.map(([name, , d1, d2, d3, d4], i) => (
-                  <tr key={name} className={`border-b border-white/[.04] ${i % 2 === 1 ? "bg-white/[.015]" : ""} hover:bg-[rgba(10,132,255,.05)]`}>
-                    <td className="px-3 py-1.5 text-[#8ed6fa]">{name}</td>
-                    <td className="px-1 py-1.5" />
-                    {[d1, d2, d3, d4].map((d, j) => (
-                      <td key={j} className="px-3 py-1.5 font-mono2 text-[#c3cad6] text-right">{fmt(d)}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-          {tab === "position" && (
-            <table className="w-full text-[12px]">
-              <thead><tr>{["职务层次", "对应级别范围"].map((h) => (
-                <th key={h} className="sticky top-0 px-3 py-1.5 text-left text-[10.5px] font-medium text-[#8b95a7] bg-[#242935] border-b border-[#333a47]">{h}</th>))}
-              </tr></thead>
-              <tbody>
-                {POSITION_LEVELS.map((r, i) => (
-                  <tr key={r.rank} className={`border-b border-white/[.04] ${i % 2 === 1 ? "bg-white/[.015]" : ""} hover:bg-[rgba(10,132,255,.05)]`}>
-                    <td className="px-3 py-2 text-[#e2e6ee]">{r.rank}</td>
-                    <td className="px-3 py-2 font-mono2 text-[#8ed6fa]">{r.levels}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-          {tab === "core" && (
+
+          {/* 级别工资 2006（运算基准，核心模块 SALARY_STANDARD） */}
+          {(tab === "rank06" || tab === "rank15") && (
             <div>
               <table className="text-[11px] border-collapse">
                 <thead>
                   <tr>
-                    <th className="sticky top-0 left-0 z-20 px-2.5 py-1.5 text-left text-[10px] font-medium text-[#8b95a7] bg-[#242935] border-b border-r border-[#333a47]">级别</th>
-                    {Array.from({ length: 14 }, (_, g) => g + 1).map((g) => (
-                      <th key={g} className="sticky top-0 z-10 px-2 py-1.5 text-right text-[10px] font-medium text-[#8b95a7] bg-[#242935] border-b border-[#333a47] font-mono2">{g}档</th>
+                    <th className={`${TH} sticky left-0 z-20`}>级别</th>
+                    {Array.from({ length: maxGrades06 }, (_, g) => g + 1).map((g) => (
+                      <th key={g} className={TH_R + " font-mono2"}>{g}档</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {Array.from({ length: 27 }, (_, i) => 27 - i).map((L) => (
-                    <tr key={L} className={L % 2 === 0 ? "bg-white/[.015]" : ""}>
-                      <td className={`sticky left-0 z-10 px-2.5 py-1 font-mono2 border-r border-white/[.05] whitespace-nowrap ${L === 18 || L === 16 || L === 25 ? "text-[#6db1ff] bg-[#242935]" : "text-[#8ed6fa] bg-[#1e222b]"}`}>{L}级</td>
-                      {Array.from({ length: 14 }, (_, g) => g + 1).map((g) => {
-                        const hot = (L === 18 && g === 7) || (L === 19 && g === 8) || (L === 16 && g === 8) || (L === 25 && g === 2);
-                        return (
-                          <td key={g} className={`px-2 py-1 text-right font-mono2 whitespace-nowrap ${hot ? "text-[#ffd669] font-semibold" : "text-[#c3cad6]"}`}>
-                            {levelWage(L, g).toLocaleString()}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
+                  {Array.from({ length: 27 }, (_, i) => 27 - i).map((L) => {
+                    const arr = tab === "rank06" ? (POLICY_CONFIG.SALARY_STANDARD[L] ?? []).slice(1) : (LEVEL_SALARY[L] ?? []);
+                    return (
+                      <tr key={L} className={L % 2 === 0 ? "bg-[var(--hov)]" : ""}>
+                        <td className={`sticky left-0 z-10 px-2.5 py-1 font-mono2 border-r border-[var(--line-2)] whitespace-nowrap ${[16, 18, 25].includes(L) ? "text-[var(--acc)] bg-[var(--head)]" : "text-[var(--acc)] bg-[var(--bg-2)]"}`}>{L}级</td>
+                        {Array.from({ length: maxGrades06 }, (_, g) => g).map((g) => {
+                          const v = arr[g];
+                          const hot = tab === "rank06" && ((L === 18 && v === 976) || (L === 19 && v === 945) || (L === 16 && v === 1213) || (L === 25 && v === 380));
+                          return (
+                            <td key={g} className={`px-2 py-1 text-right font-mono2 whitespace-nowrap ${v == null ? "" : hot ? "text-[#a26603] dark:text-[#ffd669] font-bold" : "text-[var(--tx-1)]"}`}>
+                              {v != null ? v.toLocaleString() : ""}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
-              <p className="px-1 pt-2 pb-1 text-[10px] text-[#5d6779] leading-relaxed">
-                由测算核心模块实时生成（与微信小程序后台共用）；黄色单元格为 2006 工改台账锚点：18级7档=976、19级8档=945、16级8档=1213、25级2档=380。
+              <p className="px-3 pt-2 pb-1.5 text-[10px] text-[var(--tx-3)] leading-relaxed">
+                {tab === "rank06"
+                  ? "2006 工改基准表（测算引擎运算口径）；加粗项为台账锚点：18级7档=976、19级8档=945、16级8档=1213、25级2档=380。"
+                  : "2015 年调整后现行级别工资标准，仅用于对照查阅，不参与 2006 套改运算。"}
               </p>
             </div>
+          )}
+
+          {/* 套改对照表 */}
+          {tab === "taogao" && (
+            <div className="p-3">
+              <div className="flex items-center gap-2 mb-2.5 flex-wrap">
+                <span className="text-[11px] text-[var(--tx-2)]">现任职务</span>
+                <select className="field h-7 px-2 text-[12px]" value={taogaoDuty} onChange={(e) => setTaogaoDuty(e.target.value)}>
+                  {Object.keys(CONVERSION_TABLE_2006).map((d) => <option key={d} value={d}>{d}</option>)}
+                </select>
+                <span className="text-[10.5px] text-[var(--tx-3)]">行：任职年限（至2006-07-01）· 列：套改年限（工龄含学习，虚年）→ 级别-档次</span>
+              </div>
+              <div className="overflow-auto rounded-md border border-[var(--line)]">
+                <table className="text-[11px] border-collapse">
+                  <thead>
+                    <tr>
+                      <th className={`${TH} sticky left-0 z-20`}>任职 \ 套改</th>
+                      {TAOGAO_BANDS.map((b) => <th key={b} className={TH_R + " font-mono2"}>{b}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {TENURE_ROWS.map((tr) => (
+                      <tr key={tr} className="odd:bg-[var(--hov)]">
+                        <td className="sticky left-0 z-10 px-2.5 py-1.5 font-mono2 text-[var(--acc)] bg-[var(--head)] border-r border-[var(--line-2)] whitespace-nowrap">{tr}年</td>
+                        {TAOGAO_BANDS.map((b) => {
+                          const cell = CONVERSION_TABLE_2006[taogaoDuty]?.[tr]?.[b];
+                          const anchor = cell && `${cell[0]}-${cell[1]}` === "18-7" && taogaoDuty === "乡科级正职" && tr === "1-5" && b === "35-37";
+                          return (
+                            <td key={b} className={`px-1.5 py-1.5 text-center font-mono2 whitespace-nowrap ${
+                              cell
+                                ? anchor
+                                  ? "text-white bg-[#0a84ff] font-bold"
+                                  : "text-[var(--tx-1)] hover:bg-[var(--sel)]"
+                                : "text-[var(--tx-3)]"
+                            }`}>
+                              {cell ? `${cell[0]}-${cell[1]}` : "—"}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="mt-2 text-[10px] text-[var(--tx-3)] leading-relaxed">
+                蓝底单元格为钱广才（编号1）实际套改坐标：乡科级正职 · 任职1-5年 · 套改35-37年 → <b className="text-[var(--acc)]">18-7</b>，与台账起薪行一致。
+                运算引擎使用 calculator.js 内置索引表，二者结构同源、口径以引擎为准。
+              </p>
+            </div>
+          )}
+
+          {/* 职务层次表 */}
+          {tab === "position" && (
+            <table className="w-full text-[12px]">
+              <thead><tr>{["职务层次", "对应级别范围", "低一级职务"].map((h) => <th key={h} className={TH}>{h}</th>)}</tr></thead>
+              <tbody>
+                {[...POSITIONS].reverse().map((pos, i) => {
+                  const m = POSITION_LEVEL_MAP[pos];
+                  return (
+                    <tr key={pos} className={`border-b border-[var(--line-2)] ${i % 2 === 1 ? "bg-[var(--hov)]" : ""} hover:bg-[var(--sel)]`}>
+                      <td className="px-3 py-1.5 text-[var(--tx-1)]">{pos}</td>
+                      <td className="px-3 py-1.5 font-mono2 text-[var(--acc)]">
+                        {m.minLevel === m.maxLevel ? `${m.minLevel}级` : `${m.minLevel}级至${m.maxLevel}级`}
+                      </td>
+                      <td className="px-3 py-1.5 text-[var(--tx-2)]">{LOWER_POSITION[pos] ?? "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           )}
         </div>
       </div>

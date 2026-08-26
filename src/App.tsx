@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Employ, INITIAL_UNITS, PEOPLE, Person, Unit } from "./data";
-import { MenuBar, MenuKey, StatusBar, TitleBar, Toast, ToastStack } from "./components/chrome";
+import { MenuBar, MenuKey, StatusBar, Theme, TitleBar, Toast, ToastStack } from "./components/chrome";
 import { PersonList } from "./components/PersonList";
 import { DetailPanel } from "./components/DetailPanel";
 import {
@@ -9,65 +9,7 @@ import {
 } from "./components/modals";
 import { AllowanceModal, CalcModal, CatalogModal } from "./components/tools";
 import { Icon } from "./components/icons";
-import { Calculator, PERSON_CALC_INPUTS, POLICY_CONFIG, levelWage } from "./core/calculator";
-
-/* ---------- 全部重算：调用核心模块重新执行三方案套改比对 ---------- */
-function recomputePerson(p: Person): { next: Person; changed: boolean; skipped: boolean } {
-  const inp = PERSON_CALC_INPUTS[p.id];
-  if (!inp) return { next: p, changed: false, skipped: true }; // 工人/专技等轨道不适用
-
-  if (inp.type === "post2006") {
-    const edu = POLICY_CONFIG.EDUCATION[inp.eduValue] ?? POLICY_CONFIG.EDUCATION[4];
-    const pb = edu.probation;
-    const result = `${pb.level}.${pb.grade} 工资 ${levelWage(pb.level, pb.grade)}`;
-    const note = `转正定级：${POLICY_CONFIG.getLabel(pb.dutyIndex)}，时间${inp.startYear + 1}年，试用期1年，任职年限0年`;
-    const changed = p.tgNow.result !== result;
-    return {
-      next: { ...p, tgNow: { result, note }, tYears: inp.startYear + 1 - inp.startYear },
-      changed, skipped: false,
-    };
-  }
-
-  const taogao = Calculator.calcTaogaoYears(inp.startYear, POLICY_CONFIG.EDUCATION[inp.eduValue]?.settleYears ?? 0, inp.deductYears);
-  const tenure = Math.max(0, 2006 - inp.currentDutyYear);
-  const lowerTenure = inp.lowerDuty > 0 ? Math.max(0, 2006 - inp.lowerDutyYear) : 0;
-  const comp = Calculator.compareThreeWays(inp.currentDuty, inp.lowerDuty, inp.eduValue, taogao, tenure, lowerTenure);
-  const [now, low] = [comp.results[0], comp.results.length === 3 ? comp.results[1] : null];
-  const eduItem = comp.results[comp.results.length - 1];
-  const best = comp.best;
-
-  const curType = best.method === "按现职套" ? "按现职级套改" : best.method === "按低职套" ? "按低职级套改" : "按学历套改";
-  // 结果不变时保留台账原备注，避免无谓差异
-  const keep = (old: { result: string; note: string }, result: string, note: string) =>
-    old.result === result ? old : { result, note };
-  const next: Person = {
-    ...p,
-    tYears: taogao,
-    curType,
-    tgNow: keep(
-      p.tgNow,
-      `${now.level}.${now.grade} 工资 ${levelWage(now.level, now.grade)}`,
-      `时任职务：${POLICY_CONFIG.getLabel(inp.currentDuty)}，时间${inp.currentDutyYear}年，间断${inp.deductYears}年，任职年限${tenure}年，退休费提高比例0%`
-    ),
-    tgLow: low
-      ? keep(
-          p.tgLow,
-          `${low.level}.${low.grade} 工资 ${levelWage(low.level, low.grade)}`,
-          `低一职务：${POLICY_CONFIG.getLabel(inp.lowerDuty)}，时间${inp.lowerDutyYear}年，间断${inp.deductYears}年，任职年限${lowerTenure}年`
-        )
-      : p.tgLow,
-    tgEdu: keep(
-      p.tgEdu,
-      `${eduItem.level}.${eduItem.grade} 工资 ${levelWage(eduItem.level, eduItem.grade)}`,
-      p.tgEdu.note
-    ),
-  };
-  const changed =
-    p.tgNow.result !== next.tgNow.result ||
-    p.tgLow.result !== next.tgLow.result ||
-    p.tgEdu.result !== next.tgEdu.result;
-  return { next, changed, skipped: false };
-}
+import { PERSON_CALC_INPUTS, VerifyReport, verifyPerson } from "./core/calculator";
 
 type ModalKind =
   | "query" | "unit" | "allowance" | "recalc" | "rolling"
@@ -77,6 +19,7 @@ interface Reg { code: string; at: string; }
 
 const LS_REG = "gw_salary_reg";
 const LS_MACHINE = "gw_salary_machine";
+const LS_THEME = "gw_salary_theme";
 
 function getMachine(): string {
   try {
@@ -89,6 +32,14 @@ function getMachine(): string {
     return m;
   } catch {
     return "PC-DEMO-2006";
+  }
+}
+
+function getInitTheme(): Theme {
+  try {
+    return localStorage.getItem(LS_THEME) === "dark" ? "dark" : "light";
+  } catch {
+    return "light";
   }
 }
 
@@ -106,6 +57,14 @@ export default function App() {
   const [lastRecalc, setLastRecalc] = useState("");
   const [exited, setExited] = useState(false);
   const [sideHidden, setSideHidden] = useState(false);
+  const [theme, setTheme] = useState<Theme>(getInitTheme);
+  const [reports, setReports] = useState<VerifyReport[]>([]);
+
+  /* ---------- 主题 ---------- */
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    try { localStorage.setItem(LS_THEME, theme); } catch { /* noop */ }
+  }, [theme]);
 
   /* ---------- 基础 ---------- */
   const pushToast = useCallback((type: Toast["type"], msg: string) => {
@@ -158,6 +117,7 @@ export default function App() {
         setModal("del"); break;
       case "recalc":
         if (persons.length === 0) { pushToast("error", "人员列表为空，无法执行重算"); return; }
+        setReports(persons.map(verifyPerson));
         setModal("recalc"); break;
     }
   };
@@ -196,26 +156,18 @@ export default function App() {
     pushToast("success", `已删除单位 [${id}]`);
   };
 
-  /* ---------- 重算：核心模块逐人重新比对 ---------- */
+  /* ---------- 全部重算：核心引擎逐人核验（只读，不改写台账） ---------- */
   const onRecalcDone = useCallback(() => {
     const t = new Date();
     const p2 = (n: number) => String(n).padStart(2, "0");
     setLastRecalc(`${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())}`);
-    let updated = 0, same = 0, skipped = 0;
-    setPersons((arr) =>
-      arr.map((p) => {
-        const r = recomputePerson(p);
-        if (r.skipped) skipped++;
-        else if (r.changed) updated++;
-        else same++;
-        return r.next;
-      })
-    );
+    const cnt = { match: 0, partial: 0, diff: 0, skip: 0 };
+    reports.forEach((r) => { cnt[r.status]++; });
     pushToast(
-      "success",
-      `全部重算完成：${updated} 人结果更新，${same} 人与台账一致${skipped ? `，${skipped} 人非公务员轨道跳过` : ""}`
+      cnt.diff + cnt.partial > 0 ? "info" : "success",
+      `全部重算完成：${cnt.match} 人一致 · ${cnt.partial + cnt.diff} 人差异 · ${cnt.skip} 人跳过`
     );
-  }, [pushToast]);
+  }, [pushToast, reports]);
 
   /* ---------- 注册 ---------- */
   const onRegister = (code: string): boolean => {
@@ -244,6 +196,8 @@ export default function App() {
   return (
     <div className="app-bg h-full w-full flex flex-col overflow-hidden">
       <TitleBar
+        theme={theme}
+        onTheme={setTheme}
         onClose={() => setModal("exit")}
         onMin={() => pushToast("info", "演示环境不支持最小化，可点击绿色按钮折叠列表")}
         onZoom={() => { setSideHidden((v) => !v); }}
@@ -253,7 +207,7 @@ export default function App() {
       <div className="flex-1 flex min-h-0">
         {/* 左侧人员列表 */}
         <aside
-          className={`shrink-0 border-r border-[#272c36] overflow-hidden transition-all duration-300 ${
+          className={`shrink-0 border-r border-[var(--line)] overflow-hidden transition-all duration-300 ${
             sideHidden ? "w-0 border-r-0" : "w-[252px]"
           }`}
         >
@@ -273,7 +227,7 @@ export default function App() {
           {sideHidden && (
             <button
               onClick={() => setSideHidden(false)}
-              className="mb-2 w-fit flex items-center gap-1.5 text-[11.5px] px-2.5 py-1 rounded-md border border-[#333a47] bg-[#1d2129] text-[#9aa3b2] hover:text-[#e2e6ee] hover:bg-[#242935] transition"
+              className="mb-2 w-fit flex items-center gap-1.5 text-[11.5px] px-2.5 py-1 rounded-md border border-[var(--line)] bg-[var(--bg-2)] text-[var(--tx-2)] hover:text-[var(--tx-1)] hover:bg-[var(--hov)] transition"
             >
               <Icon name="chevR" size={11} className="rotate-180" />
               展开人员列表
@@ -284,6 +238,7 @@ export default function App() {
             unitName={selected ? unitName(selected.unitId) : ""}
             onTool={onTool}
             onToast={pushToast}
+            prefill={selected ? PERSON_CALC_INPUTS[selected.id] ?? null : null}
           />
         </main>
       </div>
@@ -307,7 +262,7 @@ export default function App() {
         <AllowanceModal person={selected} unitName={unitName(selected.unitId)} onClose={() => setModal(null)} onToast={pushToast} />
       )}
       {modal === "recalc" && (
-        <RecalcModal persons={persons} onClose={() => setModal(null)} onDone={onRecalcDone} />
+        <RecalcModal reports={reports} onClose={() => setModal(null)} onDone={onRecalcDone} />
       )}
       {modal === "rolling" && selected && (
         <RollingModal person={selected} onClose={() => setModal(null)} />

@@ -5,7 +5,7 @@ export type IconName =
   | "catalog" | "calc" | "key" | "help" | "power"
   | "on" | "retire" | "stop" | "search" | "close" | "check"
   | "warn" | "info" | "lan" | "clock" | "chevR" | "copy" | "user"
-  | "shield" | "sum" | "grid" | "plus" | "del" | "bolt" | "eye";
+  | "shield" | "sum" | "grid" | "plus" | "del" | "bolt" | "eye" | "sun" | "moon";
 
 const P: Record<IconName, React.ReactNode> = {
   unit: (<><rect x="3" y="8" width="12" height="12" rx="1.5" /><path d="M15 11h4a1 1 0 0 1 1 1v8h-5M6.5 11.5v.01M9.5 11.5v.01M6.5 14.5v.01M9.5 14.5v.01M6.5 17.5v.01M9.5 17.5v.01M7 8V5.5A1.5 1.5 0 0 1 8.5 4h3A1.5 1.5 0 0 1 13 5.5V8" /></>),
@@ -39,6 +39,8 @@ const P: Record<IconName, React.ReactNode> = {
   del: (<><path d="M5 12h14" /></>),
   bolt: (<><path d="M13 2.5L4.5 13.5H11L10 21.5l8.5-11H12l1-8z" /></>),
   eye: (<><path d="M2.5 12S6 5.8 12 5.8 21.5 12 21.5 12 18 18.2 12 18.2 2.5 12 2.5 12z" /><circle cx="12" cy="12" r="2.8" /></>),
+  sun: (<><circle cx="12" cy="12" r="4.2" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4" /></>),
+  moon: (<><path d="M20 13.5A8 8 0 0 1 10.5 4a8 8 0 1 0 9.5 9.5z" /></>),
 };
 
 export function Icon({ name, size = 15, className = "", sw = 1.7 }: {
