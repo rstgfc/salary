@@ -59,6 +59,7 @@ export default function App() {
   const [sideHidden, setSideHidden] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitTheme);
   const [reports, setReports] = useState<VerifyReport[]>([]);
+  const [exporting, setExporting] = useState(false);
 
   /* ---------- 主题 ---------- */
   useEffect(() => {
@@ -72,6 +73,21 @@ export default function App() {
     setToasts((t) => [...t.slice(-3), { id, type, msg }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3000);
   }, []);
+
+  /* ---------- 源码打包下载（浏览器端即时生成 ZIP） ---------- */
+  const onExport = useCallback(async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const { exportProjectZip } = await import("./export/projectZip");
+      const { count, name } = await exportProjectZip();
+      pushToast("success", `已生成 ${name}（${count} 个文件），浏览器开始下载`);
+    } catch {
+      pushToast("error", "源码打包失败，请重试");
+    } finally {
+      setExporting(false);
+    }
+  }, [exporting, pushToast]);
 
   const selected = useMemo(
     () => persons.find((p) => p.id === selectedId) ?? persons[0] ?? null,
@@ -206,6 +222,8 @@ export default function App() {
       <TitleBar
         theme={theme}
         onTheme={setTheme}
+        onExport={onExport}
+        exporting={exporting}
         onClose={() => setModal("exit")}
         onMin={() => pushToast("info", "演示环境不支持最小化，可点击绿色按钮折叠列表")}
         onZoom={() => { setSideHidden((v) => !v); }}

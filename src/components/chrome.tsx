@@ -15,8 +15,9 @@ const p2 = (n: number) => String(n).padStart(2, "0");
 export type Theme = "light" | "dark";
 
 /* ============ 标题栏 ============ */
-export function TitleBar({ theme, onTheme, onClose, onMin, onZoom }: {
+export function TitleBar({ theme, onTheme, onExport, exporting, onClose, onMin, onZoom }: {
   theme: Theme; onTheme: (t: Theme) => void;
+  onExport: () => void; exporting: boolean;
   onClose: () => void; onMin: () => void; onZoom: () => void;
 }) {
   const now = useClock();
@@ -45,8 +46,17 @@ export function TitleBar({ theme, onTheme, onClose, onMin, onZoom }: {
         <span className="font-mono2 text-[10px] px-1.5 py-px rounded border border-[rgba(10,132,255,.4)] text-[var(--acc)] bg-[var(--sel)]">V8.2</span>
       </div>
 
-      {/* 右侧：主题切换 + 局域网 + 时钟 */}
+      {/* 右侧：源码下载 + 主题切换 + 局域网 + 时钟 */}
       <div className="ml-auto flex items-center gap-2.5 text-[11px] text-[var(--tx-2)]">
+        <button
+          onClick={onExport}
+          disabled={exporting}
+          title="下载全部工程源码（ZIP，浏览器端即时生成）"
+          className="flex items-center gap-1.5 h-6 px-2 rounded-md border border-[rgba(10,132,255,.45)] bg-[var(--sel)] text-[var(--acc)] hover:bg-[var(--sel-strong)] transition-all active:scale-95 disabled:opacity-50"
+        >
+          <Icon name="download" size={12} className={exporting ? "animate-bounce" : ""} />
+          <span className="hidden md:inline">{exporting ? "打包中…" : "下载源码"}</span>
+        </button>
         <button
           onClick={() => onTheme(theme === "light" ? "dark" : "light")}
           title={theme === "light" ? "切换到夜间模式" : "切换到日间模式"}
