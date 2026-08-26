@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>源码下载 · 公务员工资测算系统</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 14px; color: #e8eaf0;
+    background:
+      radial-gradient(900px 420px at 12% -8%, rgba(10,132,255,.10), transparent 62%),
+      radial-gradient(820px 460px at 96% 112%, rgba(48,209,88,.06), transparent 60%),
+      linear-gradient(180deg, #14161c 0%, #101216 100%);
+    display: flex; align-items: center; justify-content: center; padding: 32px 16px;
+  }
+  .mono { font-family: "JetBrains Mono", monospace; font-variant-numeric: tabular-nums; }
+  .disp { font-family: "Chakra Petch", "Noto Sans SC", sans-serif; }
+
+  .shell { width: min(760px, 100%); }
+
+  .head { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+  .mark {
+    width: 52px; height: 52px; border-radius: 14px; flex-shrink: 0;
+    background: linear-gradient(140deg, rgba(10,132,255,.22), rgba(90,200,250,.08));
+    border: 1px solid rgba(90,200,250,.35);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 10px 30px rgba(10,132,255,.18);
+  }
+  .head h1 { font-size: 19px; font-weight: 700; letter-spacing: .02em; }
+  .head p { font-size: 12px; color: #8b95a7; margin-top: 3px; }
+
+  .card {
+    position: relative; overflow: hidden;
+    background: linear-gradient(180deg, rgba(255,255,255,.025), rgba(255,255,255,0) 42%), #1d2129;
+    border: 1px solid #2c323e; border-radius: 14px;
+    box-shadow: 0 24px 60px rgba(0,0,0,.4);
+  }
+  .card::before {
+    content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(90,200,250,.8), transparent);
+    background-size: 220% 100%; animation: sweep 4s ease-in-out infinite;
+  }
+  @keyframes sweep { 0%{background-position:120% 0} 100%{background-position:-120% 0} }
+
+  .card-in { padding: 26px 26px 22px; }
+
+  .status {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; border-radius: 10px;
+    background: #14171d; border: 1px solid #2c323e;
+    font-size: 12.5px; color: #9aa3b2;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #30d158; flex-shrink: 0;
+         animation: ping 2s ease-out infinite; }
+  .dot.warn { background: #febc2e; }
+  .dot.err  { background: #ff5f57; animation: none; }
+  @keyframes ping { 0%{box-shadow:0 0 0 0 rgba(48,209,88,.5)} 70%{box-shadow:0 0 0 7px rgba(48,209,88,0)} 100%{box-shadow:0 0 0 0 rgba(48,209,88,0)} }
+
+  .btn-row { margin-top: 18px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  #dl {
+    display: inline-flex; align-items: center; gap: 10px;
+    height: 46px; padding: 0 26px; border: none; border-radius: 12px; cursor: pointer;
+    background: linear-gradient(120deg, #0a6cd6, #0a84ff 55%, #19b8f0);
+    color: #fff; font-size: 15px; font-weight: 700; letter-spacing: .03em;
+    font-family: "Noto Sans SC", sans-serif;
+    box-shadow: 0 10px 28px rgba(10,132,255,.38);
+    transition: transform .15s ease, box-shadow .15s ease, filter .15s ease;
+  }
+  #dl:hover { transform: translateY(-2px); box-shadow: 0 16px 36px rgba(10,132,255,.5); filter: brightness(1.06); }
+  #dl:active { transform: translateY(0) scale(.98); }
+  #dl:disabled { opacity: .55; cursor: wait; transform: none; }
+  #dl svg { flex-shrink: 0; }
+  .hint { font-size: 11.5px; color: #667082; line-height: 1.6; }
+
+  .files { margin-top: 22px; border-top: 1px solid #2c323e; padding-top: 16px;
+           display: grid; grid-template-columns: 1fr 1fr; gap: 4px 22px; }
+  .files p { font-size: 11.5px; color: #8b95a7; display: flex; gap: 8px; align-items: baseline; }
+  .files b { color: #8ed6fa; font-weight: 500; }
+  .files .t { color: #5d6779; }
+
+  .steps { margin-top: 18px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .step {
+    flex: 1; min-width: 190px; padding: 12px 14px; border-radius: 10px;
+    background: #191d24; border: 1px solid #2c323e; font-size: 11.5px; color: #9aa3b2; line-height: 1.65;
+    transition: border-color .15s ease, transform .15s ease;
+  }
+  .step:hover { border-color: rgba(10,132,255,.5); transform: translateY(-2px); }
+  .step b { display: block; color: #e2e6ee; font-size: 12px; margin-bottom: 3px; }
+  .step code { font-family: "JetBrains Mono", monospace; font-size: 10.5px; color: #8ed6fa; background: rgba(10,132,255,.1); padding: 1px 5px; border-radius: 4px; }
+
+  .foot { margin-top: 16px; text-align: center; font-size: 10.5px; color: #5d6779; }
+
+  @media (max-width: 620px) { .files { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="head">
+    <div class="mark">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+        <path d="M12 2.5l8 3v5.6c0 5.2-3.4 8.7-8 10.4-4.6-1.7-8-5.2-8-10.4V5.5l8-3z" fill="rgba(10,132,255,.35)" stroke="rgba(255,255,255,.4)" />
+        <path d="M9 8.5h6M9 8.5l3 3.4 3-3.4M12 11.9v4.6M9.8 13.6h4.4" stroke="#fff" stroke-width="1.4" stroke-linecap="round" />
+      </svg>
+    </div>
+    <div>
+      <h1 class="disp">公务员工资测算系统 · 工程源码下载</h1>
+      <p>与当前运行版本完全同步 · 浏览器端即时打包 · 无需服务器环境即可解压使用</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-in">
+      <div class="status">
+        <span class="dot" id="dot"></span>
+        <span class="mono" id="msg">就绪 —— 点击下方按钮生成 ZIP（约 26 个文件，含部署说明）</span>
+      </div>
+
+      <div class="btn-row">
+        <button id="dl">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 4v10M7.5 10.5L12 15l4.5-4.5" /><path d="M5 16.5V18a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1.5" />
+          </svg>
+          生成并下载源码 ZIP
+        </button>
+        <span class="hint">包名：公务员工资测算系统-源码.zip<br/>内含完整 src / electron / 配置文件 + 部署说明.txt</span>
+      </div>
+
+      <div class="files" id="files"></div>
+
+      <div class="steps">
+        <div class="step"><b>① 解压</b>得到「公务员工资测算系统-源码」目录</div>
+        <div class="step"><b>② 安装并构建</b><code>npm install</code> 然后 <code>npm run build</code></div>
+        <div class="step"><b>③ 运行 / 打包</b>试运行 <code>npx electron electron/main.cjs</code>；打 exe <code>npx electron-builder --win</code></div>
+      </div>
+    </div>
+  </div>
+
+  <p class="foot mono">V8.2 · 本机排查问题时可对照 src/core/calculator.ts（测算核心）与 src/data.ts（台账结构）</p>
+</div>
+
+<script type="module">
+  const msg = document.getElementById("msg");
+  const dot = document.getElementById("dot");
+  const btn = document.getElementById("dl");
+  const filesEl = document.getElementById("files");
+
+  const FILE_LIST = [
+    ["src/", "App · 组件 · 测算核心 · 台账"],
+    ["src/core/calculator.ts", "与小程序 calculator.js 同源"],
+    ["src/core/salarydata.ts", "2015 标准（调资行生成）"],
+    ["src/components/", "主框架 / 列表 / 详情 / 弹窗"],
+    ["electron/main.cjs", "窗口 + 局域网 HTTP 服务"],
+    ["electron-builder.yml", "exe 打包配置"],
+    ["index.html · package.json", "入口与依赖清单"],
+    ["README.md · 部署说明.txt", "命令 / 常见问题"],
+  ];
+  filesEl.innerHTML = FILE_LIST
+    .map(([a, b]) => `<p><b class="mono">${a}</b><span class="t">— ${b}</span></p>`)
+    .join("");
+
+  const base = new URL(".", location.href).href;
+  const say = (t, level) => {
+    msg.textContent = t;
+    dot.className = "dot" + (level === "warn" ? " warn" : level === "err" ? " err" : "");
+  };
+
+  async function locateChunk() {
+    const html = await fetch(base + "index.html").then((r) => r.text());
+    const mEntry = html.match(/assets\/(index-[\w-]+\.js)/);
+    if (!mEntry) throw new Error("未找到应用入口 chunk，请确认本页面由构建产物目录提供");
+    const entry = await fetch(base + "assets/" + mEntry[1]).then((r) => r.text());
+    const mPz = entry.match(/["'`](?:\.\/|assets\/)?(projectZip-[\w-]+\.js)["'`]/);
+    if (!mPz) throw new Error("未找到源码包模块，请先执行过含导出功能的构建");
+    return mPz[1];
+  }
+
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    try {
+      say("① 定位源码包模块…");
+      const chunk = await locateChunk();
+      say("② 加载打包模块（" + chunk + "）…");
+      const mod = await import(base + "assets/" + chunk);
+      say("③ 正在浏览器端生成 ZIP…");
+      const { count, name } = await mod.exportProjectZip();
+      say(`✓ 完成：${name}（${count} 个文件）已开始下载`, "ok");
+    } catch (e) {
+      say("✗ 失败：" + (e && e.message ? e.message : e) + " —— 请从应用服务地址（与 index.html 同目录）打开本页", "err");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
