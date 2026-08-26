@@ -68,7 +68,27 @@ npx electron-builder --win
 
 ---
 
-## 四、常见问题
+## 四、存储格式与千人级数据设计
+
+**当前阶段**：人员与演变数据为内存态 JSON 结构（`src/data.ts`，与小程序后台同构）；
+主题 / 注册 / 机器码等轻量配置存 `localStorage`。
+
+**正式存储（推荐落地方案）**：
+
+| 层 | 技术 | 说明 |
+|---|---|---|
+| 单机主库 | **SQLite**（`better-sqlite3`） | 单文件 `gw_salary.db`，置于 exe 同目录 `data/` 下；千人～百万行无压力，支持事务与索引，Electron 主进程内直连 |
+| 表结构 | `units` / `persons` / `salary_history` / `allowances` | `persons` 存基本信息 + 测算参数（参工年份/现职/低职/学历/扣减年）；`salary_history` 一行一条演变记录（外键关联人员） |
+| 局域网访问 | 主进程内嵌 REST API | 浏览器端不直连数据库，统一走 `http://本机IP:8080/api/*`，与桌面窗口共享同一套接口，天然支持多人并发只读 + 权限写入 |
+| 数据交换 | **JSON 导入导出** | 与微信小程序后台按同一 JSON Schema 互导；导出即备份 |
+| 纯浏览器降级 | IndexedDB | 未走 exe 时（直接浏览器打开 dist）用 IndexedDB 暂存，接口层保持不变 |
+
+**千人级渲染**：左侧人员列表在该量级下改为「搜索 + 分页」（当前内置检索已可定位），
+后续可平滑升级为虚拟滚动，数据层接口无需改动。
+
+---
+
+## 五、常见问题
 
 | 现象 | 处理 |
 |---|---|
@@ -79,14 +99,14 @@ npx electron-builder --win
 
 ---
 
-## 五、目录速览
+## 六、目录速览
 
 ```
 ├─ electron/main.cjs        # Electron 主进程：窗口 + 局域网 HTTP 服务(8080)
 ├─ electron-builder.yml     # exe 打包配置（nsis 安装包 + 便携版）
-├─ src/core/calculator.ts   # 测算核心（= 小程序 utils/calculator.js）
-├─ src/core/salarydata.ts   # 参考数据（= 小程序 salarydata.js）
+├─ src/core/calculator.ts   # 测算核心（= 小程序 utils/calculator.js）+ 重算引擎
+├─ src/core/salarydata.ts   # 2015 标准数据（生成 2014/10 调资行用，已精简）
 ├─ src/components/          # 界面：主框架 / 人员列表 / 详情 / 套改测算 / 弹窗
-├─ src/data.ts              # 人员台账（8 人演示数据）
+├─ src/data.ts              # 人员台账（8 人演示数据，JSON 结构同小程序后台）
 └─ dist/                    # 构建产物（exe 与浏览器共用）
 ```

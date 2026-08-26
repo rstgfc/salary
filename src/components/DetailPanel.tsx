@@ -60,10 +60,8 @@ const COLS: { key: string; label: string; num?: boolean; w?: number }[] = [
   { key: "level", label: "级别", w: 86 },
   { key: "pw", label: "职务工资", num: true, w: 82 },
   { key: "lw", label: "级别工资", num: true, w: 82 },
-  { key: "ten", label: "10%工资", num: true, w: 72 },
   { key: "promo", label: "晋级档起", w: 92 },
   { key: "exam", label: "考年份", w: 86 },
-  { key: "retire", label: "基本离退休费", num: true, w: 96 },
   { key: "incr", label: "增资额", num: true, w: 76 },
   { key: "note", label: "备注", w: 150 },
 ];
@@ -129,10 +127,8 @@ function HistoryTable({ history }: { history: SalaryRecord[] }) {
                   <td className="px-2 py-[5px] font-mono2 text-[#0a6cd6] dark:text-[#8ed6fa] whitespace-nowrap">{r.level}</td>
                   <td className="px-2 py-[5px] text-right font-mono2 text-[var(--tx-1)]">{fmt(r.pw)}</td>
                   <td className="px-2 py-[5px] text-right font-mono2 text-[var(--tx-1)]">{fmt(r.lw)}</td>
-                  <td className="px-2 py-[5px] text-right font-mono2 text-[var(--tx-3)]">{r.ten}</td>
                   <td className="px-2 py-[5px] font-mono2 text-[var(--tx-2)] whitespace-nowrap">{r.promo}</td>
                   <td className="px-2 py-[5px] font-mono2 text-[var(--tx-2)] whitespace-nowrap">{r.exam}</td>
-                  <td className="px-2 py-[5px] text-right font-mono2 text-[var(--tx-2)]">{r.retire}</td>
                   <td className={`px-2 py-[5px] text-right font-mono2 ${incr > 0 ? "text-[#1f8f4d] dark:text-[#7ede99]" : "text-[var(--tx-3)]"}`}>
                     {incr > 0 ? `+${fmt(incr)}` : r.incr || "—"}
                   </td>

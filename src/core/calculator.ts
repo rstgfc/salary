@@ -4,7 +4,8 @@
 /*  —— 套改表 TAOGAO_TABLE / 级别工资 SALARY_STANDARD 均为 2006 工改基准        */
 /* ========================================================================== */
 
-import type { Person } from "../data";
+import type { Person, SalaryRecord } from "../data";
+import { LEVEL_SALARY, POSITION_SALARY, dutyWage2015ByName, levelWage2015 } from "./salarydata";
 
 export interface LG { level: number; grade: number; }
 
@@ -406,4 +407,128 @@ export function verifyPerson(p: Person): VerifyReport {
   const status: VerifyReport["status"] =
     judged.length === 0 ? "skip" : ok === judged.length ? "match" : ok > 0 ? "partial" : "diff";
   return { person: p, status, taogaoYears: taogao, cells };
+}
+
+/* ========================================================================== */
+/*  全部重算引擎（D 决策）                                                      */
+/*  ① 三方案比对取最高 → 2006/7/1 套改基线行                                    */
+/*  ② 逐年滚动推演：两年晋档 / 五年晋级（就近就高），同一年两者并发时拆为两行       */
+/*  ③ 2014/10/1 自动生成「调整工资标准」行：级档不变，工资由 2006 基准表           */
+/*     切换为 2015 标准（salarydata.js：POSITION_SALARY / LEVEL_SALARY）         */
+/*  ④ 职务工资：2014/10 前用 2006 基准，之后用 2015 标准（领导/非领导区分）        */
+/* ========================================================================== */
+
+/** 职务工资 · 2006 基准（以钱广才台账为锚：乡科级正职 480；可按国办发〔2006〕22号附表替换） */
+export const DUTY_WAGE_2006: Record<number, number> = {
+  1: 330, 2: 380, 3: 430, 4: 480, 5: 540, 6: 620, 7: 760, 8: 920, 9: 1130, 10: 1350,
+};
+
+export function dutyWage2006(dutyIndex: number): number {
+  return DUTY_WAGE_2006[dutyIndex] ?? 0;
+}
+
+export function dutyWage2015(dutyIndex: number, isLeader: boolean): number {
+  return dutyWage2015ByName(getLabel(dutyIndex), isLeader);
+}
+
+const DUTY_INDEX_BY_NAME: Record<string, number> = {};
+POSITION_OPTIONS.forEach((o) => { DUTY_INDEX_BY_NAME[o.label] = o.value; });
+
+export function dutyIndexByName(name: string): number | null {
+  return DUTY_INDEX_BY_NAME[name] ?? null;
+}
+
+export interface RecalcResult { next: Person; endYear: number; }
+
+/** 对单人执行完整重算：刷新套改三行 + 重写工资演变表（2006 → endYear） */
+export function recalcPerson(p: Person, inp: CalcInputs, endYearIn?: number): RecalcResult {
+  const endYear = endYearIn ?? new Date().getFullYear();
+  const eduVal = EDUCATION_VALUES[inp.educationIndex];
+  const ec = POLICY_CONFIG.EDUCATION[eduVal];
+  const taogao = Calculator.calcTaogaoYears(inp.startYear, ec ? ec.settleYears : 0, inp.deductYears);
+  const ct = 2006 - inp.currentDutyYear;
+  const lt = inp.lowerDuty > 0 ? 2006 - inp.lowerDutyYear : 0;
+
+  /* ① 三方案比对取最高 */
+  const comp = Calculator.compareThreeWays(inp.currentDuty, inp.lowerDuty, eduVal, taogao, ct, lt);
+  const best = comp.best;
+
+  const isLeader = p.leader === "是";
+  const posLabel = getLabel(inp.currentDuty) + (isLeader ? "（领导）" : "（非领导）");
+  const duty = inp.currentDuty;
+
+  /* ②③④ 生成演变表 */
+  let L = best.level;
+  let G = best.grade;
+  let lsy = 2006;
+  let gsy = 2006;
+  let adjusted = false;
+  const pwOf = () => (adjusted ? dutyWage2015(duty, isLeader) : dutyWage2006(duty));
+  const lwOf = (l: number, g: number) => (adjusted ? levelWage2015(l, g) : Calculator.getSalary(l, g));
+
+  const rows: SalaryRecord[] = [];
+  let seq = 0;
+  const push = (start: string, reason: string, l: number, g: number, note = "", exam = "") => {
+    seq++;
+    const pw = pwOf();
+    const lw = lwOf(l, g);
+    const prev = rows[rows.length - 1];
+    const incr = prev ? String(pw + lw - (prev.pw + prev.lw)) : "";
+    rows.push({
+      seq, start, reason, position: posLabel, level: `${l}.${g}`, pw, lw,
+      promo: `${lsy},${gsy}`, exam, incr, note,
+    });
+  };
+
+  push("2006/7/1", "工资套改", L, G, "三方案比对取最高", "0");
+
+  for (let y = 2007; y <= endYear; y++) {
+    const r = Calculator.calcRolling(L, G, y - 1, y, duty);
+    for (const h of r.history) {
+      const upLevel = h.reason.includes("晋升级别");
+      const upGrade = h.reason.includes("晋升级别档次") || h.reason.includes("晋升档次");
+      L = h.level; G = h.grade; lsy = h.levelStartYear; gsy = h.gradeStartYear;
+      if (upLevel && upGrade) {
+        /* 同年既晋级又晋档：拆为两行，与台账样式一致 */
+        push(`${y}/1/1`, "滚动级别", L, G - 1);
+        push(`${y}/1/1`, "正常晋升档次", L, G);
+      } else {
+        push(`${y}/1/1`, upLevel ? "滚动级别" : "正常晋升档次", L, G);
+      }
+    }
+    if (y === 2014 && !adjusted) {
+      adjusted = true;
+      push("2014/10/1", "调整工资标准", L, G, "切换2015年工资标准（国办发〔2015〕3号）");
+    }
+  }
+
+  /* 刷新套改明细 */
+  const curType = best.method === "按现职务套改" ? "按现职级套改"
+    : best.method === "按低一职务套改" ? "按低职级套改" : "按学历套改";
+  const r0 = comp.results[0];
+  const r1 = comp.results.length === 3 ? comp.results[1] : null;
+  const rEdu = comp.results[comp.results.length - 1];
+  const w = (l: number, g: number) => Calculator.getSalary(l, g);
+
+  const next: Person = {
+    ...p,
+    tYears: taogao,
+    curType,
+    tgNow: {
+      result: `${r0.level}.${r0.grade} 工资 ${w(r0.level, r0.grade)}`,
+      note: `时任职务：${getLabel(inp.currentDuty)}，时间${inp.currentDutyYear}年，间断${inp.deductYears}年，任职年限${ct}年，退休费提高比例0%`,
+    },
+    tgLow: r1
+      ? {
+          result: `${r1.level}.${r1.grade} 工资 ${w(r1.level, r1.grade)}`,
+          note: `低一职务：${getLabel(inp.lowerDuty)}，时间${inp.lowerDutyYear}年，间断${inp.deductYears}年，任职年限${lt}年`,
+        }
+      : p.tgLow,
+    tgEdu: {
+      result: `${rEdu.level}.${rEdu.grade} 工资 ${w(rEdu.level, rEdu.grade)}`,
+      note: p.tgEdu.note,
+    },
+    history: rows,
+  };
+  return { next, endYear };
 }

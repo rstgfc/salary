@@ -9,7 +9,7 @@ import {
 } from "./components/modals";
 import { AllowanceModal, CalcModal, CatalogModal } from "./components/tools";
 import { Icon } from "./components/icons";
-import { PERSON_CALC_INPUTS, VerifyReport, verifyPerson } from "./core/calculator";
+import { PERSON_CALC_INPUTS, VerifyReport, recalcPerson, verifyPerson } from "./core/calculator";
 
 type ModalKind =
   | "query" | "unit" | "allowance" | "recalc" | "rolling"
@@ -156,18 +156,26 @@ export default function App() {
     pushToast("success", `已删除单位 [${id}]`);
   };
 
-  /* ---------- 全部重算：核心引擎逐人核验（只读，不改写台账） ---------- */
-  const onRecalcDone = useCallback(() => {
+  /* ---------- 全部重算：核验（只读）→ 应用（重写演变表） ---------- */
+  const applyRecalc = useCallback(() => {
     const t = new Date();
     const p2 = (n: number) => String(n).padStart(2, "0");
-    setLastRecalc(`${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())}`);
-    const cnt = { match: 0, partial: 0, diff: 0, skip: 0 };
-    reports.forEach((r) => { cnt[r.status]++; });
-    pushToast(
-      cnt.diff + cnt.partial > 0 ? "info" : "success",
-      `全部重算完成：${cnt.match} 人一致 · ${cnt.partial + cnt.diff} 人差异 · ${cnt.skip} 人跳过`
+    let applied = 0;
+    let endYear = new Date().getFullYear();
+    setPersons((arr) =>
+      arr.map((p) => {
+        const inp = PERSON_CALC_INPUTS[p.id];
+        if (!inp) return p;
+        const r = recalcPerson(p, inp);
+        endYear = r.endYear;
+        applied++;
+        return r.next;
+      })
     );
-  }, [pushToast, reports]);
+    setLastRecalc(`${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())}`);
+    setModal(null);
+    pushToast("success", `已应用重算结果：${applied} 人演变表重写（2006→${endYear}，含 2014/10 调资行）`);
+  }, [pushToast]);
 
   /* ---------- 注册 ---------- */
   const onRegister = (code: string): boolean => {
@@ -262,7 +270,7 @@ export default function App() {
         <AllowanceModal person={selected} unitName={unitName(selected.unitId)} onClose={() => setModal(null)} onToast={pushToast} />
       )}
       {modal === "recalc" && (
-        <RecalcModal reports={reports} onClose={() => setModal(null)} onDone={onRecalcDone} />
+        <RecalcModal reports={reports} onClose={() => setModal(null)} onApply={applyRecalc} />
       )}
       {modal === "rolling" && selected && (
         <RollingModal person={selected} onClose={() => setModal(null)} />

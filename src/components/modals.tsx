@@ -192,8 +192,8 @@ const STATUS_META: Record<VerifyReport["status"], { label: string; cls: string }
   skip: { label: "跳过", cls: "border-[var(--line)] text-[var(--tx-3)] bg-[var(--bg-3)]" },
 };
 
-export function RecalcModal({ reports, onClose, onDone }: {
-  reports: VerifyReport[]; onClose: () => void; onDone: () => void;
+export function RecalcModal({ reports, onClose, onApply }: {
+  reports: VerifyReport[]; onClose: () => void; onApply: () => void;
 }) {
   const [idx, setIdx] = useState(0);
   const [done, setDone] = useState(false);
@@ -205,25 +205,38 @@ export function RecalcModal({ reports, onClose, onDone }: {
   }, [done, reports.length]);
 
   useEffect(() => {
-    if (idx >= reports.length && !done) { setDone(true); onDone(); }
-  }, [idx, done, reports.length, onDone]);
+    if (idx >= reports.length && !done) setDone(true);
+  }, [idx, done, reports.length]);
 
   const pct = Math.round((idx / Math.max(1, reports.length)) * 100);
   const cnt = { match: 0, partial: 0, diff: 0, skip: 0 };
-  reports.forEach((r) => { if (r.status !== "skip") cnt[r.status]++; });
+  reports.forEach((r) => { cnt[r.status]++; });
+  const applicable = reports.length - cnt.skip;
+  const endYear = new Date().getFullYear();
 
   return (
-    <Modal title="全部重算 · 核心引擎核验" icon="recalc" onClose={onClose} w={620}
+    <Modal title="全部重算 · 核心引擎核验" icon="recalc" onClose={onClose} w={640}
       footer={
         <>
           <span className="mr-auto text-[10.5px] text-[var(--tx-3)]">
             <b className="text-[#1f8f4d] dark:text-[#7ede99]">一致</b> 引擎与台账相同 ·
-            <b className="text-[#a26603] dark:text-[#ffbe69]"> 差异</b> 两版套改表口径不同 ·
+            <b className="text-[#a26603] dark:text-[#ffbe69]"> 差异</b> 台账行与引擎结果不同 ·
             <b className="text-[var(--tx-2)]"> 跳过</b> 非公务员轨道
           </span>
-          <Btn kind={done ? "primary" : "ghost"} onClick={onClose}>{done ? "完成" : "后台运行"}</Btn>
+          <Btn onClick={onClose}>仅查看报告</Btn>
+          {done && (
+            <Btn kind="primary" onClick={onApply}>
+              应用重算 · 重写演变表（{applicable} 人）
+            </Btn>
+          )}
         </>
       }>
+      {done && (
+        <div className="mb-3 rounded-lg border border-[rgba(10,132,255,.4)] bg-[var(--sel)] px-3 py-2.5 text-[11px] text-[var(--tx-2)] leading-relaxed">
+          <b className="text-[var(--acc)]">应用规则：</b>三方案比对取最高作为 2006/7/1 套改基线 → 按「两年晋档 · 五年晋级（就近就高）」逐年推演至 {endYear} 年 →
+          2014/10/1 自动生成「调整工资标准」行（级档不变，工资切换 2015 标准）。应用后将重写 {applicable} 人的工资演变表并刷新套改明细。
+        </div>
+      )}
       <div className="flex items-center gap-3">
         <div className={`w-10 h-10 rounded-xl flex items-center justify-center border shrink-0 ${done ? "border-[rgba(48,209,88,.45)] bg-[rgba(48,209,88,.1)]" : "border-[rgba(10,132,255,.4)] bg-[var(--sel)]"}`}>
           {done ? <Icon name="check" size={18} className="text-[#1f8f4d] dark:text-[#7ede99] anim-tick" /> : <Icon name="recalc" size={18} className="text-[var(--acc)] animate-spin" />}
