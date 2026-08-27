@@ -1,5 +1,17 @@
+# 依赖与产物（不入库，本地重新生成）
 node_modules/
-.next/
 dist/
-build/
+release/
+
+# 日志与系统文件
 *.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# 本地环境配置
+.env
+.env.*
+*.local
+.next/
+build/

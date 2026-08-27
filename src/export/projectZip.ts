@@ -15,6 +15,7 @@ const RAW_FILES = import.meta.glob(
     "/electron-builder.yml",
     "/README.md",
     "/tsconfig.json",
+    "/.gitignore",
     "/tsconfig.app.json",
     "/tsconfig.node.json",
   ],
