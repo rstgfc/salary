@@ -3,16 +3,17 @@ import { Employ, INITIAL_UNITS, PEOPLE, Person, Unit } from "./data";
 import { MenuBar, MenuKey, StatusBar, Theme, TitleBar, Toast, ToastStack } from "./components/chrome";
 import { PersonList } from "./components/PersonList";
 import { DetailPanel } from "./components/DetailPanel";
+import { Login, SessionUser } from "./components/Login";
 import {
-  ConfirmDeleteModal, ExitModal, ExitScreen, HelpModal, QueryModal,
+  ConfirmDeleteModal, ExitModal, ExitScreen, HelpModal, PersonAddModal, QueryModal,
   RecalcModal, RegisterModal, RollingModal, UnitModal,
 } from "./components/modals";
 import { AllowanceModal, CalcModal, CatalogModal } from "./components/tools";
 import { Icon } from "./components/icons";
-import { PERSON_CALC_INPUTS, VerifyReport, recalcPerson, verifyPerson } from "./core/calculator";
+import { VerifyReport, recalcPerson, verifyPerson, PERSON_CALC_INPUTS } from "./core/calculator";
 
 type ModalKind =
-  | "query" | "unit" | "allowance" | "recalc" | "rolling"
+  | "query" | "unit" | "person" | "allowance" | "recalc" | "rolling"
   | "del" | "catalog" | "calc" | "register" | "help" | "exit" | null;
 
 interface Reg { code: string; at: string; }
@@ -44,6 +45,9 @@ function getInitTheme(): Theme {
 }
 
 export default function App() {
+  /* ---------- 登录会话（需求2） ---------- */
+  const [user, setUser] = useState<SessionUser | null>(null);
+
   const [persons, setPersons] = useState<Person[]>(PEOPLE);
   const [units, setUnits] = useState<Unit[]>(INITIAL_UNITS);
   const [selectedId, setSelectedId] = useState<number | null>(1);
@@ -61,20 +65,19 @@ export default function App() {
   const [reports, setReports] = useState<VerifyReport[]>([]);
   const [exporting, setExporting] = useState(false);
 
-  /* ---------- 主题 ---------- */
+  const canEdit = user?.role === "edit";
+
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     try { localStorage.setItem(LS_THEME, theme); } catch { /* noop */ }
   }, [theme]);
 
-  /* ---------- 基础 ---------- */
   const pushToast = useCallback((type: Toast["type"], msg: string) => {
     const id = Date.now() + Math.random();
     setToasts((t) => [...t.slice(-3), { id, type, msg }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3000);
   }, []);
 
-  /* ---------- 源码打包下载（浏览器端即时生成 ZIP） ---------- */
   const onExport = useCallback(async () => {
     if (exporting) return;
     setExporting(true);
@@ -105,7 +108,6 @@ export default function App() {
 
   const unitName = (id: string) => units.find((u) => u.id === id)?.name ?? "未知单位";
 
-  /* ---------- Esc 关闭弹窗 ---------- */
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === "Escape") setModal(null); };
     window.addEventListener("keydown", h);
@@ -114,8 +116,11 @@ export default function App() {
 
   /* ---------- 菜单 ---------- */
   const onMenu = (k: MenuKey) => {
+    const needEdit = k === "unit" || k === "person" || k === "del" || k === "allowance";
+    if (needEdit && !canEdit) { pushToast("error", "当前为仅查看权限，无法执行该操作"); return; }
     switch (k) {
       case "unit": setModal("unit"); break;
+      case "person": setModal("person"); break;
       case "query": setModal("query"); break;
       case "catalog": setModal("catalog"); break;
       case "calc": setModal("calc"); break;
@@ -138,7 +143,6 @@ export default function App() {
     }
   };
 
-  /* ---------- 工具栏：查询 / 在职 / 退休 / 止薪 ---------- */
   const onTool = (a: "query" | Employ) => {
     if (a === "query") { setModal("query"); return; }
     if (!selected) return;
@@ -148,14 +152,13 @@ export default function App() {
       `${selected.name}（编号${selected.id}）已切换为「${a}」状态`);
   };
 
-  /* ---------- 删除 ---------- */
   const confirmDelete = () => {
     if (!selected) return;
     const name = selected.name;
     setPersons((arr) => arr.filter((p) => p.id !== selected.id));
     setSelectedId(null);
     setModal(null);
-    pushToast("success", `已删除人员「${name}」及其 ${selected.history.length} 条工资演变记录`);
+    pushToast("success", `已删除人员「${name}」及其工资演变记录`);
   };
 
   /* ---------- 单位 ---------- */
@@ -165,6 +168,11 @@ export default function App() {
     setUnits((arr) => [...arr, { id, name: name.trim() }]);
     pushToast("success", `已新增单位 [${id}] ${name.trim()}`);
   };
+  const editUnit = (id: string, name: string) => {
+    if (!name.trim()) { pushToast("error", "单位名称不能为空"); return; }
+    setUnits((arr) => arr.map((u) => (u.id === id ? { ...u, name: name.trim() } : u)));
+    pushToast("success", `单位 [${id}] 已更新为「${name.trim()}」`);
+  };
   const removeUnit = (id: string) => {
     const cnt = persons.filter((p) => p.unitId === id).length;
     if (cnt > 0) { pushToast("error", `单位 [${id}] 下仍有 ${cnt} 名人员，无法删除`); return; }
@@ -172,7 +180,15 @@ export default function App() {
     pushToast("success", `已删除单位 [${id}]`);
   };
 
-  /* ---------- 全部重算：核验（只读）→ 应用（重写演变表） ---------- */
+  /* ---------- 新增人员（需求7） ---------- */
+  const nextPersonId = useMemo(() => Math.max(0, ...persons.map((p) => p.id)) + 1, [persons]);
+  const addPerson = (p: Person) => {
+    setPersons((arr) => [...arr, p]);
+    setSelectedId(p.id);
+    setModal(null);
+    pushToast("success", `已新增人员「${p.name}」（编号${p.id}），请完善测算参数后点击开始测算`);
+  };
+
   const applyRecalc = useCallback(() => {
     const t = new Date();
     const p2 = (n: number) => String(n).padStart(2, "0");
@@ -190,10 +206,9 @@ export default function App() {
     );
     setLastRecalc(`${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())}`);
     setModal(null);
-    pushToast("success", `已应用重算结果：${applied} 人演变表重写（2006→${endYear}，含 2014/10 调资行）`);
+    pushToast("success", `已应用重算结果：${applied} 人演变表重写（2006→${endYear}）`);
   }, [pushToast]);
 
-  /* ---------- 注册 ---------- */
   const onRegister = (code: string): boolean => {
     if (/^GW-\d{4}-\d{4}$/.test(code)) {
       const reg = { code, at: new Date().toLocaleDateString("zh-CN") };
@@ -206,7 +221,6 @@ export default function App() {
     return false;
   };
 
-  /* ---------- 查询定位 ---------- */
   const locate = (id: number) => {
     setSelectedId(id);
     setQuery("");
@@ -214,6 +228,16 @@ export default function App() {
     const p = persons.find((x) => x.id === id);
     pushToast("info", `已定位到 编号${id} ${p?.name ?? ""}`);
   };
+
+  /* ---------- 未登录：显示登录页（需求2） ---------- */
+  if (!user) {
+    return (
+      <>
+        <Login onLogin={(u) => { setUser(u); pushToast("success", `欢迎，${u.name}（${u.role === "edit" ? "可编辑权限" : "仅查看权限"}）`); }} />
+        <ToastStack toasts={toasts} onDismiss={(id) => setToasts((t) => t.filter((x) => x.id !== id))} />
+      </>
+    );
+  }
 
   if (exited) return <ExitScreen onRestart={() => { setExited(false); pushToast("info", "系统已重新启动，局域网服务已恢复"); }} />;
 
@@ -231,7 +255,6 @@ export default function App() {
       <MenuBar onMenu={onMenu} />
 
       <div className="flex-1 flex min-h-0">
-        {/* 左侧人员列表 */}
         <aside
           className={`shrink-0 border-r border-[var(--line)] overflow-hidden transition-all duration-300 ${
             sideHidden ? "w-0 border-r-0" : "w-[252px]"
@@ -248,7 +271,6 @@ export default function App() {
           />
         </aside>
 
-        {/* 右侧详情 */}
         <main className="flex-1 min-w-0 flex flex-col px-3.5 py-3">
           {sideHidden && (
             <button
@@ -260,11 +282,12 @@ export default function App() {
             </button>
           )}
           <DetailPanel
+            key={selected?.id ?? "none"}
             person={selected}
             unitName={selected ? unitName(selected.unitId) : ""}
+            canEdit={canEdit}
             onTool={onTool}
             onToast={pushToast}
-            prefill={selected ? PERSON_CALC_INPUTS[selected.id] ?? null : null}
           />
         </main>
       </div>
@@ -277,18 +300,21 @@ export default function App() {
         onRegister={() => setModal("register")}
       />
 
-      {/* ---------- 弹窗 ---------- */}
       {modal === "query" && (
         <QueryModal persons={persons} units={units} onClose={() => setModal(null)} onLocate={locate} />
       )}
       {modal === "unit" && (
-        <UnitModal units={units} persons={persons} onClose={() => setModal(null)} onAdd={addUnit} onRemove={removeUnit} />
+        <UnitModal units={units} persons={persons} onClose={() => setModal(null)} onAdd={addUnit} onRemove={removeUnit} onEdit={editUnit} />
+      )}
+      {modal === "person" && (
+        <PersonAddModal units={units} nextId={nextPersonId} onClose={() => setModal(null)} onAdd={addPerson} />
       )}
       {modal === "allowance" && selected && (
         <AllowanceModal person={selected} unitName={unitName(selected.unitId)} onClose={() => setModal(null)} onToast={pushToast} />
       )}
       {modal === "recalc" && (
-        <RecalcModal reports={reports} onClose={() => setModal(null)} onApply={applyRecalc} />
+        <RecalcModal reports={reports} onClose={() => setModal(null)}
+          onApply={canEdit ? applyRecalc : () => pushToast("error", "当前为仅查看权限，无法应用重算结果")} />
       )}
       {modal === "rolling" && selected && (
         <RollingModal person={selected} onClose={() => setModal(null)} />

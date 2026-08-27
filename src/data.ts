@@ -315,3 +315,27 @@ export const fmt = (n: number | string) =>
 export function yearOf(dateStr: string): number {
   return parseInt(dateStr, 10) || 0;
 }
+
+/** 级别显示格式：18.7 → 18-7（存储仍为点号，仅展示转换） */
+export const fmtLevel = (s: string) => (s ? s.replace(".", "-") : s);
+
+/** 由「新增人员」弹窗创建的人员对象 */
+export function makePerson(p: {
+  id: number; name: string; gender: "男" | "女"; identity: string;
+  unitId: string; position: string; birth: string; join: string;
+  startYear: number; isPre2006: boolean; dutyLabel: string;
+}): Person {
+  const tag = p.isPre2006 ? "普通工改" : "新考录";
+  return {
+    id: p.id, name: p.name, gender: p.gender, identity: p.identity, leader: "",
+    birth: p.birth, edu: "大学本科毕业", studyYears: 0,
+    tag, employ: "在职", unitId: p.unitId, position: p.position,
+    join: p.join, gap: 0, unq: "无考核记录", tYears: 0,
+    curType: "待测算",
+    tgLabels: ["按现职套", "按低职套", "按学历套"],
+    tgNow: { result: "—", note: "待测算" },
+    tgLow: { result: "—", note: "待测算" },
+    tgEdu: { result: "—", note: "待测算" },
+    history: [],
+  };
+}
