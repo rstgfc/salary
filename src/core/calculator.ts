@@ -261,15 +261,15 @@ export const Calculator = {
         lsy = y;
         gsy = y;
         changed = true;
-        reasons.push("五年晋升级别（就近就高）");
+        reasons.push("五年晋级");
       }
 
-      /* 2. 两年晋升级别档次（无上限） */
+      /* 2. 两年晋档（无上限） */
       if (y - gsy >= rules.gradeYears) {
         grade++;
         gsy = y;
         changed = true;
-        reasons.push("两年晋升级别档次");
+        reasons.push("两年晋档");
       }
 
       if (changed) {
@@ -505,8 +505,8 @@ export function recalcPerson(p: Person, inp: CalcInputs, endYearIn?: number): Re
   for (let y = 2007; y <= endYear; y++) {
     const r = Calculator.calcRolling(L, G, y - 1, y, duty);
     for (const h of r.history) {
-      const upLevel = h.reason.includes("晋升级别");
-      const upGrade = h.reason.includes("晋升级别档次") || h.reason.includes("晋升档次");
+      const upLevel = h.reason.includes("晋级");
+      const upGrade = h.reason.includes("晋档");
       L = h.level; G = h.grade; lsy = h.levelStartYear; gsy = h.gradeStartYear;
       if (upLevel && upGrade) {
         /* 同年既晋级又晋档：拆为两行，与台账样式一致 */

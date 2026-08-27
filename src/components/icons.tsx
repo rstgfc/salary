@@ -5,7 +5,8 @@ export type IconName =
   | "catalog" | "calc" | "key" | "help" | "power"
   | "on" | "retire" | "stop" | "search" | "close" | "check"
   | "warn" | "info" | "lan" | "clock" | "chevR" | "copy" | "user"
-  | "shield" | "sum" | "grid" | "plus" | "del" | "bolt" | "eye" | "sun" | "moon" | "download";
+  | "shield" | "sum" | "grid" | "plus" | "del" | "bolt" | "eye" | "sun" | "moon" | "download"
+  | "chat" | "fullscreen" | "sort" | "filter" | "mountain" | "clipboard" | "send" | "clip" | "folder" | "collapse" | "minimize";
 
 const P: Record<IconName, React.ReactNode> = {
   unit: (<><rect x="3" y="8" width="12" height="12" rx="1.5" /><path d="M15 11h4a1 1 0 0 1 1 1v8h-5M6.5 11.5v.01M9.5 11.5v.01M6.5 14.5v.01M9.5 14.5v.01M6.5 17.5v.01M9.5 17.5v.01M7 8V5.5A1.5 1.5 0 0 1 8.5 4h3A1.5 1.5 0 0 1 13 5.5V8" /></>),
@@ -42,6 +43,17 @@ const P: Record<IconName, React.ReactNode> = {
   sun: (<><circle cx="12" cy="12" r="4.2" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4" /></>),
   moon: (<><path d="M20 13.5A8 8 0 0 1 10.5 4a8 8 0 1 0 9.5 9.5z" /></>),
   download: (<><path d="M12 4v10M7.5 10.5L12 15l4.5-4.5" /><path d="M5 16.5V18a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1.5" /></>),
+  chat: (<><path d="M21 12a8.5 8.5 0 0 1-12.4 7.5L4 21l1.6-4.5A8.5 8.5 0 1 1 21 12z" /><path d="M8.5 10.5h7M8.5 13.5h4.5" /></>),
+  fullscreen: (<><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></>),
+  sort: (<><path d="M8 5v14M8 5L4.5 8.5M8 5l3.5 3.5M16 19V5M16 19l-3.5-3.5M16 19l3.5-3.5" /></>),
+  filter: (<><path d="M4 6h16M7 12h10M10 18h4" /></>),
+  mountain: (<><path d="M3 19L9.5 7l3.5 6 2.5-4L21 19H3z" /><path d="M13.5 9.5l1-1.5" /></>),
+  clipboard: (<><rect x="5" y="4.5" width="14" height="16" rx="1.5" /><path d="M9 4.5V3h6v1.5M9 10h6M9 13.5h6M9 17h3.5" /></>),
+  send: (<><path d="M21 3L10.5 13.5M21 3l-7 18-3.5-7.5L3 10l18-7z" /></>),
+  clip: (<><path d="M20 11.5l-7.8 7.8a5 5 0 0 1-7-7L13 4.5a3.4 3.4 0 0 1 4.8 4.8l-7.8 7.7a1.8 1.8 0 0 1-2.5-2.5L14.6 7.4" /></>),
+  folder: (<><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" /></>),
+  collapse: (<><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" /></>),
+  minimize: (<><path d="M5 12h14" /></>),
 };
 
 export function Icon({ name, size = 15, className = "", sw = 1.7 }: {

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Employ, INITIAL_UNITS, PEOPLE, Person, Unit } from "./data";
-import { MenuBar, MenuKey, StatusBar, Theme, TitleBar, Toast, ToastStack } from "./components/chrome";
+import { MenuRail, MenuKey, StatusBar, Theme, TitleBar, Toast, ToastStack, UserStrip } from "./components/chrome";
+import { ChatWidget } from "./components/ChatWidget";
 import { PersonList } from "./components/PersonList";
 import { DetailPanel } from "./components/DetailPanel";
 import { Login, Session } from "./components/Login";
@@ -177,6 +178,13 @@ export default function App() {
     pushToast("success", `已删除人员「${name}」及其 ${selected.history.length} 条工资演变记录`);
   };
 
+  /* 需求3：工具栏"删除选择"按钮（止薪之后） */
+  const requestDelete = () => {
+    if (!selected) { pushToast("error", "人员列表为空，无可删除对象"); return; }
+    if (!canEdit) { pushToast("error", "删除人员需要可编辑权限（当前为仅查看）"); return; }
+    setModal("del");
+  };
+
   /* ---------- 单位 ---------- */
   const addUnit = (id: string, name: string) => {
     if (!id || !name.trim()) { pushToast("error", "单位编号与名称不能为空"); return; }
@@ -270,26 +278,13 @@ export default function App() {
         onMin={() => pushToast("info", "演示环境不支持最小化，可点击绿色按钮折叠列表")}
         onZoom={() => { setSideHidden((v) => !v); }}
       />
-      <MenuBar onMenu={onMenu} />
-
-      {/* 当前用户与权限 */}
-      <div className="shrink-0 flex items-center gap-2 px-3.5 h-7 border-b border-[var(--line)] bg-[var(--bg-1)] text-[11px]">
-        <Icon name="user" size={12} className="text-[var(--tx-3)]" />
-        <span className="text-[var(--tx-2)]">当前用户：<b className="text-[var(--tx-1)]">{session.name}</b></span>
-        <span className={`px-1.5 py-px rounded border text-[10px] ${
-          canEdit
-            ? "border-[rgba(48,209,88,.45)] text-[#1f8f4d] dark:text-[#7ede99] bg-[rgba(48,209,88,.1)]"
-            : "border-[rgba(255,159,10,.45)] text-[#a26603] dark:text-[#ffbe69] bg-[rgba(255,159,10,.1)]"
-        }`}>
-          {canEdit ? "可编辑" : "仅查看"}
-        </span>
-        <button onClick={handleLogout}
-          className="ml-auto flex items-center gap-1 text-[var(--tx-3)] hover:text-[var(--acc)] transition">
-          <Icon name="power" size={11} />切换账户
-        </button>
-      </div>
+      {/* 需求4：用户信息条（替换原菜单栏位置） */}
+      <UserStrip userName={session.name} canEdit={canEdit} onSwitch={handleLogout} />
 
       <div className="flex-1 flex min-h-0">
+        {/* 需求5：左侧竖列图标菜单 */}
+        <MenuRail onMenu={onMenu} />
+
         {/* 左侧人员列表 */}
         <aside
           className={`shrink-0 border-r border-[var(--line)] overflow-hidden transition-all duration-300 ${
@@ -327,6 +322,7 @@ export default function App() {
               canEdit={canEdit}
               onTool={onTool}
               onToast={pushToast}
+              onDelete={requestDelete}
               onSaved={() => setListTick((t) => t + 1)}
             />
           ) : (
@@ -375,6 +371,9 @@ export default function App() {
       )}
       {modal === "help" && <HelpModal onClose={() => setModal(null)} />}
       {modal === "exit" && <ExitModal onStay={() => setModal(null)} onExit={() => setExited(true)} />}
+
+      {/* 需求7：悬浮聊天 */}
+      <ChatWidget user={session.name} userName={session.name} onToast={pushToast} />
 
       <ToastStack toasts={toasts} onDismiss={(id) => setToasts((t) => t.filter((x) => x.id !== id))} />
     </div>

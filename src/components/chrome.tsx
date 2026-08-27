@@ -14,39 +14,41 @@ const p2 = (n: number) => String(n).padStart(2, "0");
 
 export type Theme = "light" | "dark";
 
-/* ============ 标题栏 ============ */
+/* ============ 标题栏（需求2：窗口控制按钮移至右上角，顺序 全屏/折叠/最小化/关闭） ============ */
 export function TitleBar({ theme, onTheme, onClose, onMin, onZoom }: {
   theme: Theme; onTheme: (t: Theme) => void;
   onClose: () => void; onMin: () => void; onZoom: () => void;
 }) {
   const now = useClock();
+  const [isFs, setIsFs] = useState(false);
+
+  useEffect(() => {
+    const onFsChange = () => setIsFs(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => undefined);
+    } else {
+      document.documentElement.requestFullscreen().catch(() => undefined);
+    }
+  };
+
+  const winBtn = "group w-7 h-6 rounded-md flex items-center justify-center text-[var(--tx-2)] hover:text-white transition active:scale-90";
+
   return (
     <div className="h-10 shrink-0 relative flex items-center px-3.5 border-b border-[var(--line)] bg-[var(--head)] select-none">
-      {/* mac 红绿灯 */}
-      <div className="flex items-center gap-2">
-        <button onClick={onClose} title="退出系统"
-          className="group w-[13px] h-[13px] rounded-full bg-[#ff5f57] border border-[rgba(0,0,0,.22)] flex items-center justify-center hover:brightness-110 active:scale-90 transition">
-          <span className="opacity-0 group-hover:opacity-100 text-[9px] leading-none text-[rgba(0,0,0,.6)] font-bold">×</span>
-        </button>
-        <button onClick={onMin} title="最小化（演示）"
-          className="group w-[13px] h-[13px] rounded-full bg-[#febc2e] border border-[rgba(0,0,0,.22)] flex items-center justify-center hover:brightness-110 active:scale-90 transition">
-          <span className="opacity-0 group-hover:opacity-100 text-[9px] leading-none text-[rgba(0,0,0,.6)] font-bold">−</span>
-        </button>
-        <button onClick={onZoom} title="折叠 / 展开人员列表"
-          className="group w-[13px] h-[13px] rounded-full bg-[#28c840] border border-[rgba(0,0,0,.22)] flex items-center justify-center hover:brightness-110 active:scale-90 transition">
-          <span className="opacity-0 group-hover:opacity-100 text-[8px] leading-none text-[rgba(0,0,0,.6)] font-bold">⤢</span>
-        </button>
-      </div>
-
-      {/* 中央标题 */}
-      <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2">
+      {/* 左侧：品牌标题 */}
+      <div className="flex items-center gap-2 min-w-0">
         <Logo size={17} />
-        <span className="font-disp font-semibold tracking-wide text-[13px] text-[var(--tx-1)]">公务员工资测算系统</span>
-        <span className="font-mono2 text-[10px] px-1.5 py-px rounded border border-[rgba(10,132,255,.4)] text-[var(--acc)] bg-[var(--sel)]">V8.2</span>
+        <span className="font-disp font-semibold tracking-wide text-[13px] text-[var(--tx-1)] truncate">公务员工资测算系统</span>
+        <span className="font-mono2 text-[10px] px-1.5 py-px rounded border border-[rgba(10,132,255,.4)] text-[var(--acc)] bg-[var(--sel)] shrink-0">V8.2</span>
       </div>
 
-      {/* 右侧：主题切换 + 局域网 + 时钟 */}
-      <div className="ml-auto flex items-center gap-2.5 text-[11px] text-[var(--tx-2)]">
+      {/* 中部：主题切换 + 局域网 + 时钟 */}
+      <div className="ml-auto mr-3 flex items-center gap-2.5 text-[11px] text-[var(--tx-2)]">
         <button
           onClick={() => onTheme(theme === "light" ? "dark" : "light")}
           title={theme === "light" ? "切换到夜间模式" : "切换到日间模式"}
@@ -58,11 +60,27 @@ export function TitleBar({ theme, onTheme, onClose, onMin, onZoom }: {
         <span className="flex items-center gap-1.5">
           <span className="w-1.5 h-1.5 rounded-full bg-[#30d158] live-dot" />
           <Icon name="lan" size={13} />
-          <span className="font-mono2 hidden sm:inline">LAN :8080</span>
+          <span className="font-mono2 hidden lg:inline">LAN :8080</span>
         </span>
-        <span className="font-mono2 text-[var(--tx-1)]">
+        <span className="font-mono2 text-[var(--tx-1)] hidden sm:inline">
           {p2(now.getHours())}:{p2(now.getMinutes())}:{p2(now.getSeconds())}
         </span>
+      </div>
+
+      {/* 右侧：窗口控制按钮（全屏 / 折叠 / 最小化 / 关闭） */}
+      <div className="flex items-center gap-1 shrink-0">
+        <button onClick={toggleFullscreen} title={isFs ? "退出全屏" : "全屏"} className={`${winBtn} hover:bg-[rgba(10,132,255,.85)]`}>
+          <Icon name="fullscreen" size={13} />
+        </button>
+        <button onClick={onZoom} title="折叠 / 展开人员列表" className={`${winBtn} hover:bg-[#28c840]`}>
+          <Icon name="collapse" size={13} />
+        </button>
+        <button onClick={onMin} title="最小化" className={`${winBtn} hover:bg-[#e0a800]`}>
+          <Icon name="minimize" size={13} />
+        </button>
+        <button onClick={onClose} title="退出系统" className={`${winBtn} hover:bg-[#e0453a]`}>
+          <Icon name="close" size={13} />
+        </button>
       </div>
 
       {/* 顶部扫描光 */}
@@ -95,29 +113,54 @@ const MENUS: { key: MenuKey; label: string; icon: IconName; danger?: boolean }[]
 
 const SEP_AFTER: MenuKey[] = ["person", "allowance", "rolling", "del", "calc", "help"];
 
-export function MenuBar({ onMenu }: { onMenu: (k: MenuKey) => void }) {
+/* 需求5：左侧竖列图标栏（鼠标指向提示功能） */
+export function MenuRail({ onMenu }: { onMenu: (k: MenuKey) => void }) {
   return (
-    <div className="h-10 shrink-0 flex items-center gap-1 px-2.5 border-b border-[var(--line)] bg-[var(--bg-1)] overflow-x-auto">
+    <div className="w-[54px] shrink-0 flex flex-col items-center gap-1 py-2.5 border-r border-[var(--line)] bg-[var(--bg-1)] overflow-visible">
       {MENUS.map((m) => (
         <React.Fragment key={m.key}>
-          <button
-            onClick={() => onMenu(m.key)}
-            className={`menu-btn flex items-center gap-1.5 px-2.5 h-[27px] rounded-md text-[12.5px] whitespace-nowrap ${
-              m.danger
-                ? "text-[#c2554f] hover:!bg-[rgba(255,69,58,.12)] hover:!text-[#e0453a] dark:text-[#d99a96]"
-                : "text-[var(--tx-2)] hover:text-[var(--tx-1)]"
-            }`}
-          >
-            <Icon name={m.icon} size={14} />
-            {m.label}
-          </button>
-          {SEP_AFTER.includes(m.key) && <span className="w-px h-4 bg-[var(--line)] mx-0.5 shrink-0" />}
+          <div className="relative group shrink-0">
+            <button
+              onClick={() => onMenu(m.key)}
+              className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all active:scale-90 ${
+                m.danger
+                  ? "text-[#c2554f] hover:bg-[rgba(255,69,58,.14)] hover:text-[#e0453a]"
+                  : "text-[var(--tx-2)] hover:bg-[var(--hov)] hover:text-[var(--acc)]"
+              }`}
+            >
+              <Icon name={m.icon} size={17} />
+            </button>
+            {/* 悬停提示 */}
+            <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 px-2.5 py-1.5 rounded-md text-[11.5px] font-medium whitespace-nowrap opacity-0 translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-150 z-[60] bg-[var(--tx-1)] text-[var(--bg-0)] shadow-[0_6px_18px_rgba(10,20,45,.3)]">
+              {m.label}
+            </span>
+          </div>
+          {SEP_AFTER.includes(m.key) && <span className="w-6 h-px bg-[var(--line)] my-0.5 shrink-0" />}
         </React.Fragment>
       ))}
-      <span className="ml-auto hidden lg:flex items-center gap-1.5 text-[10.5px] text-[var(--tx-3)] pr-1 shrink-0">
-        <Icon name="bolt" size={12} className="text-[#e0a800]" />
-        测算核心 calculator.js 已接入 · 与小程序后台同源
+    </div>
+  );
+}
+
+/* 需求4：用户信息条（替换原"测算核心 calculator.js 已接入"位置） */
+export function UserStrip({ userName, canEdit, onSwitch }: {
+  userName: string; canEdit: boolean; onSwitch: () => void;
+}) {
+  return (
+    <div className="h-8 shrink-0 flex items-center gap-2 px-3 border-b border-[var(--line)] bg-[var(--bg-1)] text-[11px] select-none">
+      <Icon name="user" size={12} className="text-[var(--tx-3)]" />
+      <span className="text-[var(--tx-2)]">当前用户：<b className="text-[var(--tx-1)]">{userName}</b></span>
+      <span className={`px-1.5 py-px rounded border text-[10px] ${
+        canEdit
+          ? "border-[rgba(48,209,88,.45)] text-[#1f8f4d] dark:text-[#7ede99] bg-[rgba(48,209,88,.1)]"
+          : "border-[rgba(255,159,10,.45)] text-[#a26603] dark:text-[#ffbe69] bg-[rgba(255,159,10,.1)]"
+      }`}>
+        {canEdit ? "可编辑" : "仅查看"}
       </span>
+      <button onClick={onSwitch}
+        className="ml-auto flex items-center gap-1 text-[var(--tx-3)] hover:text-[var(--acc)] transition">
+        <Icon name="power" size={11} />切换账户
+      </button>
     </div>
   );
 }
