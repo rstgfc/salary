@@ -85,12 +85,11 @@ export function TitleBar({ theme, onTheme, onExport, exporting, onClose, onMin, 
 
 /* ============ 菜单栏 ============ */
 export type MenuKey =
-  | "unit" | "person" | "allowance" | "query" | "recalc" | "rolling"
+  | "unit" | "allowance" | "query" | "recalc" | "rolling"
   | "del" | "catalog" | "calc" | "register" | "help" | "exit";
 
 const MENUS: { key: MenuKey; label: string; icon: IconName; danger?: boolean }[] = [
-  { key: "unit", label: "增加单位", icon: "unit" },
-  { key: "person", label: "人员", icon: "user" },
+  { key: "unit", label: "单位增加", icon: "unit" },
   { key: "allowance", label: "津贴编辑输出", icon: "allowance" },
   { key: "query", label: "综合查询", icon: "query" },
   { key: "recalc", label: "全部重算", icon: "recalc" },
@@ -103,7 +102,7 @@ const MENUS: { key: MenuKey; label: string; icon: IconName; danger?: boolean }[]
   { key: "exit", label: "退出", icon: "power", danger: true },
 ];
 
-const SEP_AFTER: MenuKey[] = ["person", "allowance", "rolling", "del", "calc", "help"];
+const SEP_AFTER: MenuKey[] = ["allowance", "rolling", "del", "calc", "help"];
 
 export function MenuBar({ onMenu }: { onMenu: (k: MenuKey) => void }) {
   return (

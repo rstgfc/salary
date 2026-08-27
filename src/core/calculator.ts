@@ -373,8 +373,8 @@ const SKIP_REASON: Record<number, string> = {
 };
 
 function parseLedgerLG(result: string): string | null {
-  const m = /^(\d{1,2})[.\-](\d{1,2})/.exec(result.trim());
-  return m ? `${m[1]}-${m[2]}` : null;
+  const m = /^(\d{1,2})\.(\d{1,2})/.exec(result.trim());
+  return m ? `${m[1]}.${m[2]}` : null;
 }
 
 export function verifyPerson(p: Person): VerifyReport {
@@ -392,7 +392,7 @@ export function verifyPerson(p: Person): VerifyReport {
   const ledgerRows = [p.tgNow, p.tgLow, p.tgEdu];
   const cells: VerifyCell[] = comp.results.map((r, i) => {
     const ledger = parseLedgerLG(ledgerRows[i] ? ledgerRows[i].result : "—");
-    const engine = `${r.level}-${r.grade}`;
+    const engine = `${r.level}.${r.grade}`;
     return {
       method: r.method,
       ledger,
@@ -475,7 +475,7 @@ export function recalcPerson(p: Person, inp: CalcInputs, endYearIn?: number): Re
     const prev = rows[rows.length - 1];
     const incr = prev ? String(pw + lw - (prev.pw + prev.lw)) : "";
     rows.push({
-      seq, start, reason, position: posLabel, level: `${l}-${g}`, pw, lw,
+      seq, start, reason, position: posLabel, level: `${l}.${g}`, pw, lw,
       promo: `${lsy},${gsy}`, exam, incr, note,
     });
   };
@@ -515,207 +515,20 @@ export function recalcPerson(p: Person, inp: CalcInputs, endYearIn?: number): Re
     tYears: taogao,
     curType,
     tgNow: {
-      result: `${r0.level}-${r0.grade} 工资 ${w(r0.level, r0.grade)}`,
+      result: `${r0.level}.${r0.grade} 工资 ${w(r0.level, r0.grade)}`,
       note: `时任职务：${getLabel(inp.currentDuty)}，时间${inp.currentDutyYear}年，间断${inp.deductYears}年，任职年限${ct}年，退休费提高比例0%`,
     },
     tgLow: r1
       ? {
-          result: `${r1.level}-${r1.grade} 工资 ${w(r1.level, r1.grade)}`,
+          result: `${r1.level}.${r1.grade} 工资 ${w(r1.level, r1.grade)}`,
           note: `低一职务：${getLabel(inp.lowerDuty)}，时间${inp.lowerDutyYear}年，间断${inp.deductYears}年，任职年限${lt}年`,
         }
       : p.tgLow,
     tgEdu: {
-      result: `${rEdu.level}-${rEdu.grade} 工资 ${w(rEdu.level, rEdu.grade)}`,
+      result: `${rEdu.level}.${rEdu.grade} 工资 ${w(rEdu.level, rEdu.grade)}`,
       note: p.tgEdu.note,
     },
     history: rows,
   };
   return { next, endYear };
-}
-
-/* ========================================================================== */
-/*  通用测算（页面实时调用，salary.js calculate 的纯函数版）                       */
-/* ========================================================================== */
-
-export type CalcType = "pre2006" | "post2006";
-
-export interface PosChange {
-  year: number;
-  dutyIndex: number;
-  reason: string;
-  isInitial?: boolean;
-}
-
-export interface EvoRow {
-  year: string;
-  reason: string;
-  duty: string;
-  level: number;
-  grade: number;
-  levelStartYear: number;
-  gradeStartYear: number;
-}
-
-export interface CalcRunInput {
-  type: CalcType;
-  startYear: number;
-  educationIndex: number;   // EDUCATION_VALUES 下标
-  deductYears: number;
-  currentDutyIndex: number; // DUTY_VALUES 下标
-  currentDutyYear: number;
-  lowerDutyIndex: number;   // LOWER_DUTY_VALUES 下标
-  lowerDutyYear: number;
-  positionChanges: PosChange[];
-  endYear: number;
-}
-
-export interface CalcRunResult {
-  compare: (CompareItem & { isBest: boolean })[];
-  evolution: EvoRow[];
-  hero: { title: string; duty: string; levelGrade: string; sub: string };
-  taogaoYears: number;
-  tenureYears: number;
-  finalLevel: number;
-  finalGrade: number;
-  finalDutyIndex: number;
-  curTypeLabel: string;
-}
-
-function compBest(list: CompareItem[]): CompareItem {
-  let best = list[0];
-  for (let i = 1; i < list.length; i++) {
-    const r = list[i];
-    if (r.level < best.level || (r.level === best.level && r.grade > best.grade)) best = r;
-  }
-  return best;
-}
-
-export function runCalculation(inp: CalcRunInput): CalcRunResult {
-  const ey = inp.endYear || 2026;
-  const eduVal = EDUCATION_VALUES[inp.educationIndex];
-  const eduConfig = POLICY_CONFIG.EDUCATION[eduVal];
-
-  const evo: EvoRow[] = [];
-  let compare: CompareItem[] = [];
-  let finalResult = { level: 0, grade: 0 };
-  let currentLevel = 0, currentGrade = 0, currentYear = 0, currentDutyIndex = 0;
-  let levelStartYear = 0, gradeStartYear = 0;
-  let taogaoYears = 0, tenureYears = 0;
-  let curTypeLabel = "转正定级";
-
-  if (inp.type === "pre2006") {
-    const cdi = DUTY_VALUES[inp.currentDutyIndex];
-    const ldi = LOWER_DUTY_VALUES[inp.lowerDutyIndex];
-    const cdy = inp.currentDutyYear;
-    const ldy = inp.lowerDutyYear;
-
-    taogaoYears = Calculator.calcTaogaoYears(inp.startYear, eduConfig.settleYears, inp.deductYears);
-    tenureYears = 2006 - cdy;
-    const lowerTenure = ldi > 0 ? 2006 - ldy : 0;
-
-    const comp = Calculator.compareThreeWays(cdi, ldi, eduVal, taogaoYears, tenureYears, lowerTenure);
-    compare = comp.results;
-    finalResult = { level: comp.best.level, grade: comp.best.grade };
-    curTypeLabel = comp.best.method;
-
-    currentLevel = finalResult.level;
-    currentGrade = finalResult.grade;
-    currentYear = 2006;
-    currentDutyIndex = cdi;
-    levelStartYear = 2006;
-    gradeStartYear = 2006;
-
-    evo.push({
-      year: "2006-07", reason: "2006年工资套改", duty: POLICY_CONFIG.getLabel(cdi),
-      level: currentLevel, grade: currentGrade, levelStartYear, gradeStartYear,
-    });
-  } else {
-    const pb = eduConfig.probation;
-    currentLevel = pb.level;
-    currentGrade = pb.grade;
-    currentYear = inp.startYear + 1;
-    currentDutyIndex = pb.dutyIndex;
-    levelStartYear = currentYear;
-    gradeStartYear = currentYear;
-    finalResult = { level: currentLevel, grade: currentGrade };
-    compare = [{
-      method: "转正定级", duty: POLICY_CONFIG.getLabel(currentDutyIndex),
-      years: "-", tenure: "-", level: currentLevel, grade: currentGrade,
-    }];
-    evo.push({
-      year: `${currentYear}-07`, reason: "转正定级", duty: POLICY_CONFIG.getLabel(currentDutyIndex),
-      level: currentLevel, grade: currentGrade, levelStartYear, gradeStartYear,
-    });
-  }
-
-  const sorted = inp.positionChanges.slice().sort((a, b) => a.year - b.year);
-  for (const change of sorted) {
-    if (inp.type === "pre2006" && change.year <= 2006) continue;
-    if (inp.type === "post2006" && change.isInitial) continue;
-    if (change.year <= currentYear || change.year > ey) continue;
-
-    const rolling = Calculator.calcRolling(currentLevel, currentGrade, currentYear, change.year - 1, currentDutyIndex);
-    currentLevel = rolling.level;
-    currentGrade = rolling.grade;
-    levelStartYear = rolling.levelStartYear;
-    gradeStartYear = rolling.gradeStartYear;
-
-    for (const h of rolling.history) {
-      evo.push({
-        year: `${h.year}-01`, reason: h.reason, duty: POLICY_CONFIG.getLabel(currentDutyIndex),
-        level: h.level, grade: h.grade, levelStartYear: h.levelStartYear, gradeStartYear: h.gradeStartYear,
-      });
-    }
-
-    const promoted = Calculator.calcPromotion(currentLevel, currentGrade, change.dutyIndex);
-    currentLevel = promoted.level;
-    currentGrade = promoted.grade;
-    currentYear = change.year;
-    currentDutyIndex = change.dutyIndex;
-    levelStartYear = change.year;
-    gradeStartYear = change.year;
-
-    let reason = change.reason || "职务晋升";
-    if (promoted.forced) reason += "（强制提档）";
-
-    evo.push({
-      year: `${change.year}-01`, reason, duty: POLICY_CONFIG.getLabel(currentDutyIndex),
-      level: currentLevel, grade: currentGrade, levelStartYear, gradeStartYear,
-    });
-  }
-
-  if (currentYear < ey) {
-    const fr = Calculator.calcRolling(currentLevel, currentGrade, currentYear, ey, currentDutyIndex);
-    currentLevel = fr.level;
-    currentGrade = fr.grade;
-    for (const hm of fr.history) {
-      evo.push({
-        year: `${hm.year}-01`, reason: hm.reason, duty: POLICY_CONFIG.getLabel(currentDutyIndex),
-        level: hm.level, grade: hm.grade, levelStartYear: hm.levelStartYear, gradeStartYear: hm.gradeStartYear,
-      });
-    }
-  }
-
-  const best = compBest(compare);
-  const dn = POLICY_CONFIG.getLabel(currentDutyIndex);
-  const sub = inp.type === "pre2006"
-    ? `按2006现职务套改为 ${finalResult.level}-${finalResult.grade}，套改年限 ${taogaoYears} 年，任职年限 ${tenureYears} 年。`
-    : `按学历转正定级为 ${finalResult.level}-${finalResult.grade}。`;
-
-  return {
-    compare: compare.map((r) => ({ ...r, isBest: r === best })),
-    evolution: evo,
-    hero: {
-      title: `截至 ${ey} 年当前状态`,
-      duty: `职务：${dn}`,
-      levelGrade: `级别档次：${currentLevel}-${currentGrade}`,
-      sub,
-    },
-    taogaoYears,
-    tenureYears,
-    finalLevel: currentLevel,
-    finalGrade: currentGrade,
-    finalDutyIndex: currentDutyIndex,
-    curTypeLabel,
-  };
 }
