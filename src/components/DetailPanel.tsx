@@ -207,8 +207,8 @@ export function DetailPanel({ person, unitName, canEdit, onTool, onToast }: {
         </div>
       </div>
 
-      {/* ================= 上部：三栏 ================= */}
-      <div className="shrink-0 grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_minmax(0,1.15fr)] gap-3 items-start">
+      {/* ================= 上部：三栏（中栏=职务变化+开始测算+截止时间，需求4） ================= */}
+      <div className="shrink-0 grid grid-cols-1 md:grid-cols-[280px_minmax(0,1fr)_minmax(0,1.1fr)] xl:grid-cols-[320px_minmax(0,1fr)_minmax(0,1.15fr)] gap-3 items-start">
         {/* -------- 左：人员基本信息（需求5/6） -------- */}
         <div className="card-panel overflow-hidden">
           <CardHead icon="user" title="人员基本信息"
