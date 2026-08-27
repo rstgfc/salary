@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { EMPLOY_META, Employ, Person, TAG_META, Unit, makePerson, yearOf } from "../data";
-import { VerifyReport } from "../core/calculator";
+import { EMPLOY_META, Employ, Person, TAG_META, Unit, makePerson, yearOf, fmt, fmtLevel } from "../data";
+import { VerifyReport, CalcRunResult, Calculator } from "../core/calculator";
 import { Icon, IconName, Logo } from "./icons";
 
 /* ================= 通用弹窗 ================= */
@@ -150,7 +150,7 @@ export function UnitModal({ units, persons, canEdit, onClose, onAdd, onRemove, o
   const [editName, setEditName] = useState("");
 
   return (
-    <Modal title="增加单位" icon="unit" onClose={onClose} w={520}
+    <Modal title="单位管理" icon="unit" onClose={onClose} w={520}
       footer={<><Btn onClick={onClose}>关闭</Btn><Btn kind="primary" disabled={!canEdit} onClick={() => { onAdd(id, name); setId(String(Math.max(0, ...units.map((u) => parseInt(u.id, 10)), parseInt(id || "0", 10)) + 1).padStart(4, "0")); setName(""); }}>确认增加</Btn></>}>
       <div className="grid grid-cols-2 gap-2.5">
         <label className="text-[11px] text-[var(--tx-2)]">
@@ -535,6 +535,76 @@ export function ExitScreen({ onRestart }: { onRestart: () => void }) {
   );
 }
 
+/* ================= 套改明细弹窗（需求7：由栏目改为按钮弹出框） ================= */
+export function TaogaiModal({ person, results, onClose }: {
+  person: Person; results: CalcRunResult | null; onClose: () => void;
+}) {
+  const wageNow = results ? Calculator.getSalary(results.finalLevel, results.finalGrade) : 0;
+  return (
+    <Modal title={`套改明细（2006 工资套改）· ${person.name}`} icon="sum" onClose={onClose} w={620}
+      footer={<Btn kind="primary" onClick={onClose}>关闭</Btn>}>
+      {!results ? (
+        <p className="text-[12px] text-[var(--tx-3)] text-center py-8">暂无测算结果，请先点击「开始测算」。</p>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {/* 结果摘要 */}
+          <div className="hero-grad rounded-lg px-3.5 py-3 text-white" style={{ animation: "none" }}>
+            <p className="text-[9.5px] tracking-[2px] opacity-85">{results.hero.title}</p>
+            <div className="mt-1 flex items-baseline gap-2.5 flex-wrap">
+              <span className="text-[16px] font-bold font-mono2">{fmtLevel(results.hero.levelGrade)}</span>
+              <span className="text-[11.5px] opacity-90">{results.hero.duty}</span>
+              {wageNow > 0 && (
+                <span className="font-mono2 text-[10.5px] px-1.5 py-0.5 rounded bg-white/18 border border-white/25">级别工资 ¥{fmt(wageNow)}/月</span>
+              )}
+            </div>
+            <p className="mt-1 text-[10.5px] opacity-90">{results.hero.sub}</p>
+          </div>
+
+          {/* 套改明细对比表 */}
+          <div className="rounded-lg border border-[var(--line)] overflow-hidden">
+            <table className="w-full text-[11.5px] border-collapse">
+              <thead>
+                <tr>
+                  <th className="tbl-head px-2.5 py-1.5 text-left">套改方式</th>
+                  <th className="tbl-head px-2 py-1.5 text-right">套改年限</th>
+                  <th className="tbl-head px-2 py-1.5 text-right">任职年限</th>
+                  <th className="tbl-head px-2 py-1.5 text-right">结果</th>
+                  <th className="tbl-head px-2 py-1.5 text-center w-[48px]">采纳</th>
+                </tr>
+              </thead>
+              <tbody>
+                {results.compare.map((r, i) => (
+                  <tr key={r.method} className={`border-b border-[var(--line-2)] last:border-0 ${r.isBest ? "bg-[var(--sel)]" : i % 2 === 1 ? "bg-[var(--hov)]" : ""}`}>
+                    <td className={`px-2.5 py-1.5 ${r.isBest ? "font-semibold text-[var(--acc)]" : "text-[var(--tx-1)]"}`}>
+                      {r.method}
+                      <span className="ml-1.5 text-[10px] text-[var(--tx-3)]">{r.duty}</span>
+                    </td>
+                    <td className="px-2 py-1.5 text-right font-mono2 text-[var(--tx-2)]">{r.years}</td>
+                    <td className="px-2 py-1.5 text-right font-mono2 text-[var(--tx-2)]">{r.tenure}</td>
+                    <td className="px-2 py-1.5 text-right font-mono2 font-semibold text-[var(--tx-1)]">{r.level}-{r.grade}</td>
+                    <td className={`px-2 py-1.5 text-center font-bold ${r.isBest ? "text-[#1f8f4d] dark:text-[#7ede99]" : "text-[var(--tx-3)]"}`}>
+                      {r.isBest ? "✓" : "-"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* 参工时间 */}
+          <div className="flex items-baseline gap-3 rounded-md bg-[var(--hov)] px-3 py-2">
+            <span className="w-[64px] shrink-0 text-[11px] text-[var(--tx-2)]">参工时间</span>
+            <span className="font-mono2 text-[12.5px] font-semibold text-[var(--tx-1)] shrink-0">{person.join}</span>
+            <span className="text-[10.5px] text-[var(--tx-3)] leading-snug">
+              工龄间断 {person.gap} 年，{person.unq}，大专以上未计工龄学习 {person.studyYears} 年，套改年限 <b className="font-mono2 text-[var(--tx-2)]">{results.taogaoYears}</b> 年
+            </span>
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 /* ================= 新增人员（需求7） ================= */
 const joinYears = Array.from({ length: 2026 - 1950 + 1 }, (_, i) => 1950 + i).reverse();
 
@@ -546,7 +616,7 @@ export function PersonAddModal({ units, nextId, onClose, onAdd }: {
   const [joinYear, setJoinYear] = useState(2010);
   const [form, setForm] = useState({
     name: "", gender: "男" as "男" | "女", identity: "公务员",
-    birth: "1990年1月", unitId: units[0]?.id ?? "0001", position: "科员",
+    birth: "1990年1月", unitId: units[0]?.id ?? "0001",
   });
 
   const isPre2006 = joinYear < 2006;
@@ -555,7 +625,7 @@ export function PersonAddModal({ units, nextId, onClose, onAdd }: {
     if (!form.name.trim()) return;
     onAdd(makePerson({
       id: nextId, name: form.name.trim(), gender: form.gender, identity: form.identity,
-      unitId: form.unitId, position: form.position, birth: form.birth,
+      unitId: form.unitId, birth: form.birth,
       join: `${joinYear}年7月`, startYear: joinYear, isPre2006,
     }));
   };
@@ -563,7 +633,7 @@ export function PersonAddModal({ units, nextId, onClose, onAdd }: {
   const sel = "field w-full h-8 px-2 text-[12px]";
 
   return (
-    <Modal title={step === 1 ? "新增人员 · 第一步" : "新增人员 · 第二步"} icon="user" onClose={onClose} w={440}
+    <Modal title={step === 1 ? "人员增加 · 第一步" : "人员增加 · 第二步"} icon="user" onClose={onClose} w={440}
       footer={
         step === 1 ? (
           <><Btn onClick={onClose}>取消</Btn><Btn kind="primary" onClick={() => setStep(2)}>确定</Btn></>
@@ -614,16 +684,16 @@ export function PersonAddModal({ units, nextId, onClose, onAdd }: {
               <option value="公务员">公务员</option><option value="参公管理人员">参公管理人员</option><option value="机关技术工人">机关技术工人</option>
             </select>
           </label>
-          <label className="block text-[11px] text-[var(--tx-2)]">
-            职务
-            <input value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} className="field mt-1 w-full h-8 px-2.5 text-[12.5px]" />
-          </label>
           <label className="block text-[11px] text-[var(--tx-2)] col-span-2">
             所属单位
             <select className={sel + " mt-1"} value={form.unitId} onChange={(e) => setForm({ ...form, unitId: e.target.value })}>
               {units.map((u) => <option key={u.id} value={u.id}>[{u.id}] {u.name}</option>)}
             </select>
           </label>
+          <div className="col-span-2 flex items-start gap-2 rounded-md border border-dashed border-[var(--line)] bg-[var(--bg-3)] px-2.5 py-2 text-[10.5px] text-[var(--tx-3)] leading-relaxed">
+            <Icon name="info" size={13} className="text-[var(--acc)] shrink-0 mt-px" />
+            <span>无需填写职务——保存后在详情页「职务变化情况」中维护，系统自动取最新一条作为现任职务。</span>
+          </div>
           <div className="col-span-2 rounded-lg border border-[var(--line)] bg-[var(--bg-3)] px-3 py-2 text-[11px] text-[var(--tx-2)] flex items-center gap-2">
             <Icon name="info" size={13} className="text-[var(--acc)]" />
             参加工作时间 <b className="font-mono2">{joinYear} 年</b> · 类型 <b>{isPre2006 ? "2006年前参公（套改）" : "2006年后参公"}</b>

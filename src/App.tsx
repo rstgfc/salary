@@ -71,7 +71,7 @@ export default function App() {
   const [sideHidden, setSideHidden] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitTheme);
   const [reports, setReports] = useState<VerifyReport[]>([]);
-  const [exporting, setExporting] = useState(false);
+  const [listTick, setListTick] = useState(0); // 需求2：测算保存后刷新左侧列表的最新职务
 
   const canEdit = session?.role === "admin";
 
@@ -98,21 +98,6 @@ export default function App() {
     setToasts((t) => [...t.slice(-3), { id, type, msg }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3000);
   }, []);
-
-  /* ---------- 源码打包下载 ---------- */
-  const onExport = useCallback(async () => {
-    if (exporting) return;
-    setExporting(true);
-    try {
-      const { exportProjectZip } = await import("./export/projectZip");
-      const { count, name } = await exportProjectZip();
-      pushToast("success", `已生成 ${name}（${count} 个文件），浏览器开始下载`);
-    } catch {
-      pushToast("error", "源码打包失败，请重试");
-    } finally {
-      setExporting(false);
-    }
-  }, [exporting, pushToast]);
 
   const selected = useMemo(
     () => persons.find((p) => p.id === selectedId) ?? persons[0] ?? null,
@@ -281,8 +266,6 @@ export default function App() {
       <TitleBar
         theme={theme}
         onTheme={setTheme}
-        onExport={onExport}
-        exporting={exporting}
         onClose={() => setModal("exit")}
         onMin={() => pushToast("info", "演示环境不支持最小化，可点击绿色按钮折叠列表")}
         onZoom={() => { setSideHidden((v) => !v); }}
@@ -321,6 +304,7 @@ export default function App() {
             query={query}
             onQuery={setQuery}
             units={units}
+            tick={listTick}
           />
         </aside>
 
@@ -343,9 +327,10 @@ export default function App() {
               canEdit={canEdit}
               onTool={onTool}
               onToast={pushToast}
+              onSaved={() => setListTick((t) => t + 1)}
             />
           ) : (
-            <div className="flex-1 flex items-center justify-center text-[var(--tx-3)]">暂无人员，请通过「人员」菜单新增</div>
+            <div className="flex-1 flex items-center justify-center text-[var(--tx-3)]">暂无人员，请通过「人员增加」菜单新增</div>
           )}
         </main>
       </div>

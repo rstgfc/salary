@@ -1,8 +1,9 @@
 import React from "react";
 import { EMPLOY_META, Person, TAG_META, Unit } from "../data";
+import { latestDutyLabel } from "../core/calculator";
 import { Icon } from "./icons";
 
-export function PersonList({ persons, total, selectedId, onSelect, query, onQuery, units }: {
+export function PersonList({ persons, total, selectedId, onSelect, query, onQuery, units, tick }: {
   persons: Person[];
   total: number;
   selectedId: number | null;
@@ -10,7 +11,9 @@ export function PersonList({ persons, total, selectedId, onSelect, query, onQuer
   query: string;
   onQuery: (q: string) => void;
   units: Unit[];
+  tick?: number; // 需求2：测算保存后变化，触发最新职务重新读取
 }) {
+  void tick;
   const unitName = (id: string) => units.find((u) => u.id === id)?.name ?? "未知单位";
   const onDuty = persons.filter((p) => p.employ === "在职").length;
 
@@ -76,6 +79,11 @@ export function PersonList({ persons, total, selectedId, onSelect, query, onQuer
                   style={{ background: emp.dot, boxShadow: `0 0 6px ${emp.dot}66` }}
                   title={p.employ}
                 />
+              </div>
+              {/* 需求2：最新职务 */}
+              <div className="mt-1 pl-7 flex items-center gap-1.5 min-w-0">
+                <Icon name="user" size={11} className="text-[var(--acc)] shrink-0" />
+                <span className="text-[11px] text-[var(--tx-1)] truncate font-medium">{latestDutyLabel(p)}</span>
               </div>
               <div className="mt-1 flex items-center gap-1.5 pl-7">
                 <span className="font-mono2 text-[10.5px] text-[var(--tx-3)] truncate">[{p.unitId}] {unitName(p.unitId)}</span>

@@ -319,17 +319,17 @@ export function yearOf(dateStr: string): number {
 /** 级别显示格式：18.7 → 18-7（需求3，统一以连字符展示） */
 export const fmtLevel = (s: string) => (s ? s.replace(/^(\d+)\.(\d+)/, "$1-$2") : s);
 
-/** 由「新增人员」弹窗创建的人员对象（需求7） */
+/** 由「人员增加」弹窗创建的人员对象（需求4：不填职务，由职务变化情况取最新值） */
 export function makePerson(p: {
   id: number; name: string; gender: "男" | "女"; identity: string;
-  unitId: string; position: string; birth: string; join: string;
+  unitId: string; birth: string; join: string;
   startYear: number; isPre2006: boolean;
 }): Person {
   return {
     id: p.id, name: p.name, gender: p.gender, identity: p.identity, leader: "",
     birth: p.birth, edu: "大学本科毕业", studyYears: 0,
     tag: p.isPre2006 ? "普通工改" : "新考录",
-    employ: "在职", unitId: p.unitId, position: p.position,
+    employ: "在职", unitId: p.unitId, position: "", // 职务由测算时的职务变化情况最新值确定
     join: p.join, gap: 0, unq: "无考核记录", tYears: 0,
     curType: "待测算",
     tgLabels: ["按现职套", "按低职套", "按学历套"],

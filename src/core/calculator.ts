@@ -348,6 +348,26 @@ export const PERSON_CALC_INPUTS: Record<number, CalcInputs | null> = {
   8: null, // 专业技术序列，不适用公务员 2006 套改
 };
 
+/* ---------------- 最新职务推导（需求2/4：从职务变化情况取最新值） ---------------- */
+
+/** 读取某人已保存测算参数中的最新一条职务变化 */
+export function latestDutyLabel(p: Person): string {
+  try {
+    const raw = localStorage.getItem(`gw_calc_v1_${p.id}`);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      const changes = saved?.params?.positionChanges;
+      if (Array.isArray(changes) && changes.length) {
+        const label = getLabel(changes[changes.length - 1].dutyIndex);
+        if (label && label !== "未知") return label;
+      }
+    }
+  } catch { /* ignore */ }
+  const inp = PERSON_CALC_INPUTS[p.id];
+  if (inp) return getLabel(POLICY_CONFIG.getNextDuty(inp.currentDuty));
+  return p.position.replace(/（.*?）/g, "").trim() || "待测算";
+}
+
 /* ---------------- 台账核验 ---------------- */
 
 export interface VerifyCell {
