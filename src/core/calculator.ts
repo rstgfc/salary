@@ -475,7 +475,7 @@ export function recalcPerson(p: Person, inp: CalcInputs, endYearIn?: number): Re
     const prev = rows[rows.length - 1];
     const incr = prev ? String(pw + lw - (prev.pw + prev.lw)) : "";
     rows.push({
-      seq, start, reason, position: posLabel, level: `${l}.${g}`, pw, lw,
+      seq, start, reason, position: posLabel, level: `${l}-${g}`, pw, lw,
       promo: `${lsy},${gsy}`, exam, incr, note,
     });
   };
@@ -515,17 +515,17 @@ export function recalcPerson(p: Person, inp: CalcInputs, endYearIn?: number): Re
     tYears: taogao,
     curType,
     tgNow: {
-      result: `${r0.level}.${r0.grade} 工资 ${w(r0.level, r0.grade)}`,
+      result: `${r0.level}-${r0.grade} 工资 ${w(r0.level, r0.grade)}`,
       note: `时任职务：${getLabel(inp.currentDuty)}，时间${inp.currentDutyYear}年，间断${inp.deductYears}年，任职年限${ct}年，退休费提高比例0%`,
     },
     tgLow: r1
       ? {
-          result: `${r1.level}.${r1.grade} 工资 ${w(r1.level, r1.grade)}`,
+          result: `${r1.level}-${r1.grade} 工资 ${w(r1.level, r1.grade)}`,
           note: `低一职务：${getLabel(inp.lowerDuty)}，时间${inp.lowerDutyYear}年，间断${inp.deductYears}年，任职年限${lt}年`,
         }
       : p.tgLow,
     tgEdu: {
-      result: `${rEdu.level}.${rEdu.grade} 工资 ${w(rEdu.level, rEdu.grade)}`,
+      result: `${rEdu.level}-${rEdu.grade} 工资 ${w(rEdu.level, rEdu.grade)}`,
       note: p.tgEdu.note,
     },
     history: rows,
