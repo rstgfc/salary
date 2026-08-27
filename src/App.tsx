@@ -3,16 +3,17 @@ import { Employ, INITIAL_UNITS, PEOPLE, Person, Unit } from "./data";
 import { MenuBar, MenuKey, StatusBar, Theme, TitleBar, Toast, ToastStack } from "./components/chrome";
 import { PersonList } from "./components/PersonList";
 import { DetailPanel } from "./components/DetailPanel";
+import { Login, Session } from "./components/Login";
 import {
-  ConfirmDeleteModal, ExitModal, ExitScreen, HelpModal, QueryModal,
+  ConfirmDeleteModal, ExitModal, ExitScreen, HelpModal, PersonAddModal, QueryModal,
   RecalcModal, RegisterModal, RollingModal, UnitModal,
 } from "./components/modals";
 import { AllowanceModal, CalcModal, CatalogModal } from "./components/tools";
 import { Icon } from "./components/icons";
-import { PERSON_CALC_INPUTS, VerifyReport, recalcPerson, verifyPerson } from "./core/calculator";
+import { VerifyReport, recalcPerson, verifyPerson, PERSON_CALC_INPUTS } from "./core/calculator";
 
 type ModalKind =
-  | "query" | "unit" | "allowance" | "recalc" | "rolling"
+  | "query" | "unit" | "person" | "allowance" | "recalc" | "rolling"
   | "del" | "catalog" | "calc" | "register" | "help" | "exit" | null;
 
 interface Reg { code: string; at: string; }
@@ -20,6 +21,7 @@ interface Reg { code: string; at: string; }
 const LS_REG = "gw_salary_reg";
 const LS_MACHINE = "gw_salary_machine";
 const LS_THEME = "gw_salary_theme";
+const LS_SESSION = "gw_salary_session";
 
 function getMachine(): string {
   try {
@@ -43,7 +45,17 @@ function getInitTheme(): Theme {
   }
 }
 
+function getInitSession(): Session | null {
+  try {
+    const s = localStorage.getItem(LS_SESSION);
+    return s ? JSON.parse(s) : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function App() {
+  const [session, setSession] = useState<Session | null>(getInitSession);
   const [persons, setPersons] = useState<Person[]>(PEOPLE);
   const [units, setUnits] = useState<Unit[]>(INITIAL_UNITS);
   const [selectedId, setSelectedId] = useState<number | null>(1);
@@ -61,6 +73,19 @@ export default function App() {
   const [reports, setReports] = useState<VerifyReport[]>([]);
   const [exporting, setExporting] = useState(false);
 
+  const canEdit = session?.role === "admin";
+
+  /* ---------- 登录 / 登出 ---------- */
+  const handleLogin = (s: Session) => {
+    setSession(s);
+    try { localStorage.setItem(LS_SESSION, JSON.stringify(s)); } catch { /* noop */ }
+    pushToast("success", `欢迎，${s.name}（${s.role === "admin" ? "可编辑" : "仅查看"}）`);
+  };
+  const handleLogout = () => {
+    setSession(null);
+    try { localStorage.removeItem(LS_SESSION); } catch { /* noop */ }
+  };
+
   /* ---------- 主题 ---------- */
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -74,7 +99,7 @@ export default function App() {
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3000);
   }, []);
 
-  /* ---------- 源码打包下载（浏览器端即时生成 ZIP） ---------- */
+  /* ---------- 源码打包下载 ---------- */
   const onExport = useCallback(async () => {
     if (exporting) return;
     setExporting(true);
@@ -112,29 +137,37 @@ export default function App() {
     return () => window.removeEventListener("keydown", h);
   }, []);
 
-  /* ---------- 菜单 ---------- */
+  /* ---------- 需要编辑权限的菜单 ---------- */
+  const requireEdit = (label: string): boolean => {
+    if (!canEdit) { pushToast("error", `「${label}」需要可编辑权限（当前为仅查看）`); return false; }
+    return true;
+  };
+
   const onMenu = (k: MenuKey) => {
     switch (k) {
-      case "unit": setModal("unit"); break;
       case "query": setModal("query"); break;
       case "catalog": setModal("catalog"); break;
       case "calc": setModal("calc"); break;
       case "register": setModal("register"); break;
       case "help": setModal("help"); break;
       case "exit": setModal("exit"); break;
+      case "unit": if (requireEdit("增加单位")) setModal("unit"); break;
+      case "person": if (requireEdit("人员")) setModal("person"); break;
       case "allowance":
         if (!selected) { pushToast("error", "请先在左侧选择一名人员"); return; }
-        setModal("allowance"); break;
+        if (requireEdit("津贴编辑输出")) setModal("allowance");
+        break;
       case "rolling":
         if (!selected) { pushToast("error", "请先在左侧选择一名人员"); return; }
         setModal("rolling"); break;
       case "del":
         if (!selected) { pushToast("error", "人员列表为空，无可删除对象"); return; }
-        setModal("del"); break;
+        if (requireEdit("删除选择")) setModal("del");
+        break;
       case "recalc":
         if (persons.length === 0) { pushToast("error", "人员列表为空，无法执行重算"); return; }
-        setReports(persons.map(verifyPerson));
-        setModal("recalc"); break;
+        if (requireEdit("全部重算")) { setReports(persons.map(verifyPerson)); setModal("recalc"); }
+        break;
     }
   };
 
@@ -142,6 +175,7 @@ export default function App() {
   const onTool = (a: "query" | Employ) => {
     if (a === "query") { setModal("query"); return; }
     if (!selected) return;
+    if (!canEdit) { pushToast("error", "切换在职状态需要可编辑权限（当前为仅查看）"); return; }
     if (selected.employ === a) { pushToast("info", `${selected.name} 当前已是「${a}」状态`); return; }
     setPersons((arr) => arr.map((p) => (p.id === selected.id ? { ...p, employ: a } : p)));
     pushToast(a === "在职" ? "success" : a === "退休" ? "info" : "error",
@@ -165,6 +199,11 @@ export default function App() {
     setUnits((arr) => [...arr, { id, name: name.trim() }]);
     pushToast("success", `已新增单位 [${id}] ${name.trim()}`);
   };
+  const editUnit = (id: string, name: string) => {
+    if (!name.trim()) { pushToast("error", "单位名称不能为空"); return; }
+    setUnits((arr) => arr.map((u) => (u.id === id ? { ...u, name: name.trim() } : u)));
+    pushToast("success", `单位 [${id}] 已更新为「${name.trim()}」`);
+  };
   const removeUnit = (id: string) => {
     const cnt = persons.filter((p) => p.unitId === id).length;
     if (cnt > 0) { pushToast("error", `单位 [${id}] 下仍有 ${cnt} 名人员，无法删除`); return; }
@@ -172,8 +211,18 @@ export default function App() {
     pushToast("success", `已删除单位 [${id}]`);
   };
 
+  /* ---------- 新增人员（需求7） ---------- */
+  const addPerson = (p: Person) => {
+    setPersons((arr) => [...arr, p]);
+    setSelectedId(p.id);
+    setModal(null);
+    pushToast("success", `已新增人员「${p.name}」（编号${p.id}），请核对参数后点击开始测算`);
+  };
+  const nextPersonId = useMemo(() => Math.max(0, ...persons.map((p) => p.id)) + 1, [persons]);
+
   /* ---------- 全部重算：核验（只读）→ 应用（重写演变表） ---------- */
   const applyRecalc = useCallback(() => {
+    if (!canEdit) { pushToast("error", "应用重算需要可编辑权限"); return; }
     const t = new Date();
     const p2 = (n: number) => String(n).padStart(2, "0");
     let applied = 0;
@@ -191,7 +240,7 @@ export default function App() {
     setLastRecalc(`${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())}`);
     setModal(null);
     pushToast("success", `已应用重算结果：${applied} 人演变表重写（2006→${endYear}，含 2014/10 调资行）`);
-  }, [pushToast]);
+  }, [canEdit, pushToast]);
 
   /* ---------- 注册 ---------- */
   const onRegister = (code: string): boolean => {
@@ -215,6 +264,16 @@ export default function App() {
     pushToast("info", `已定位到 编号${id} ${p?.name ?? ""}`);
   };
 
+  /* ---------- 登录页（需求2） ---------- */
+  if (!session) {
+    return (
+      <>
+        <Login onLogin={handleLogin} />
+        <ToastStack toasts={toasts} onDismiss={(id) => setToasts((t) => t.filter((x) => x.id !== id))} />
+      </>
+    );
+  }
+
   if (exited) return <ExitScreen onRestart={() => { setExited(false); pushToast("info", "系统已重新启动，局域网服务已恢复"); }} />;
 
   return (
@@ -229,6 +288,23 @@ export default function App() {
         onZoom={() => { setSideHidden((v) => !v); }}
       />
       <MenuBar onMenu={onMenu} />
+
+      {/* 当前用户与权限 */}
+      <div className="shrink-0 flex items-center gap-2 px-3.5 h-7 border-b border-[var(--line)] bg-[var(--bg-1)] text-[11px]">
+        <Icon name="user" size={12} className="text-[var(--tx-3)]" />
+        <span className="text-[var(--tx-2)]">当前用户：<b className="text-[var(--tx-1)]">{session.name}</b></span>
+        <span className={`px-1.5 py-px rounded border text-[10px] ${
+          canEdit
+            ? "border-[rgba(48,209,88,.45)] text-[#1f8f4d] dark:text-[#7ede99] bg-[rgba(48,209,88,.1)]"
+            : "border-[rgba(255,159,10,.45)] text-[#a26603] dark:text-[#ffbe69] bg-[rgba(255,159,10,.1)]"
+        }`}>
+          {canEdit ? "可编辑" : "仅查看"}
+        </span>
+        <button onClick={handleLogout}
+          className="ml-auto flex items-center gap-1 text-[var(--tx-3)] hover:text-[var(--acc)] transition">
+          <Icon name="power" size={11} />切换账户
+        </button>
+      </div>
 
       <div className="flex-1 flex min-h-0">
         {/* 左侧人员列表 */}
@@ -259,13 +335,18 @@ export default function App() {
               展开人员列表
             </button>
           )}
-          <DetailPanel
-            person={selected}
-            unitName={selected ? unitName(selected.unitId) : ""}
-            onTool={onTool}
-            onToast={pushToast}
-            prefill={selected ? PERSON_CALC_INPUTS[selected.id] ?? null : null}
-          />
+          {selected ? (
+            <DetailPanel
+              key={selected.id}
+              person={selected}
+              unitName={unitName(selected.unitId)}
+              canEdit={canEdit}
+              onTool={onTool}
+              onToast={pushToast}
+            />
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-[var(--tx-3)]">暂无人员，请通过「人员」菜单新增</div>
+          )}
         </main>
       </div>
 
@@ -282,7 +363,11 @@ export default function App() {
         <QueryModal persons={persons} units={units} onClose={() => setModal(null)} onLocate={locate} />
       )}
       {modal === "unit" && (
-        <UnitModal units={units} persons={persons} onClose={() => setModal(null)} onAdd={addUnit} onRemove={removeUnit} />
+        <UnitModal units={units} persons={persons} canEdit={canEdit} onClose={() => setModal(null)}
+          onAdd={addUnit} onRemove={removeUnit} onEdit={editUnit} />
+      )}
+      {modal === "person" && (
+        <PersonAddModal units={units} nextId={nextPersonId} onClose={() => setModal(null)} onAdd={addPerson} />
       )}
       {modal === "allowance" && selected && (
         <AllowanceModal person={selected} unitName={unitName(selected.unitId)} onClose={() => setModal(null)} onToast={pushToast} />

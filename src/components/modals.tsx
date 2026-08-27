@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { EMPLOY_META, Employ, Person, TAG_META, Unit, yearOf } from "../data";
+import { EMPLOY_META, Employ, Person, TAG_META, Unit, makePerson, yearOf } from "../data";
 import { VerifyReport } from "../core/calculator";
 import { Icon, IconName, Logo } from "./icons";
 
@@ -137,18 +137,21 @@ export function QueryModal({ persons, units, onClose, onLocate }: {
   );
 }
 
-/* ================= 单位增加 ================= */
-export function UnitModal({ units, persons, onClose, onAdd, onRemove }: {
-  units: Unit[]; persons: Person[]; onClose: () => void;
+/* ================= 增加单位（需求1） ================= */
+export function UnitModal({ units, persons, canEdit, onClose, onAdd, onRemove, onEdit }: {
+  units: Unit[]; persons: Person[]; canEdit: boolean; onClose: () => void;
   onAdd: (id: string, name: string) => void; onRemove: (id: string) => void;
+  onEdit: (id: string, name: string) => void;
 }) {
   const next = String(Math.max(0, ...units.map((u) => parseInt(u.id, 10))) + 1).padStart(4, "0");
   const [id, setId] = useState(next);
   const [name, setName] = useState("");
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
 
   return (
-    <Modal title="单位增加" icon="unit" onClose={onClose} w={520}
-      footer={<><Btn onClick={onClose}>关闭</Btn><Btn kind="primary" onClick={() => { onAdd(id, name); setId(String(Math.max(0, ...units.map((u) => parseInt(u.id, 10)), parseInt(id || "0", 10)) + 1).padStart(4, "0")); setName(""); }}>确认增加</Btn></>}>
+    <Modal title="增加单位" icon="unit" onClose={onClose} w={520}
+      footer={<><Btn onClick={onClose}>关闭</Btn><Btn kind="primary" disabled={!canEdit} onClick={() => { onAdd(id, name); setId(String(Math.max(0, ...units.map((u) => parseInt(u.id, 10)), parseInt(id || "0", 10)) + 1).padStart(4, "0")); setName(""); }}>确认增加</Btn></>}>
       <div className="grid grid-cols-2 gap-2.5">
         <label className="text-[11px] text-[var(--tx-2)]">
           单位编号
@@ -170,12 +173,33 @@ export function UnitModal({ units, persons, onClose, onAdd, onRemove }: {
             <div key={u.id} className="flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--hov)] transition">
               <Icon name="unit" size={14} className="text-[var(--tx-3)]" />
               <span className="font-mono2 text-[12px] text-[var(--acc)]">[{u.id}]</span>
-              <span className="text-[12.5px] text-[var(--tx-1)]">{u.name}</span>
-              <span className="ml-auto font-mono2 text-[10.5px] text-[var(--tx-3)]">{cnt} 人</span>
-              <button onClick={() => onRemove(u.id)} title="删除单位"
-                className="w-6 h-6 rounded-md flex items-center justify-center text-[var(--tx-3)] hover:text-[#d70015] dark:hover:text-[#ff8b84] hover:bg-[rgba(255,69,58,.1)] transition">
-                <Icon name="trash" size={12} />
-              </button>
+              {editId === u.id ? (
+                <>
+                  <input autoFocus value={editName} onChange={(e) => setEditName(e.target.value)}
+                    className="field h-7 flex-1 px-2 text-[12.5px]" />
+                  <button onClick={() => { onEdit(u.id, editName); setEditId(null); }} title="保存"
+                    className="w-6 h-6 rounded-md flex items-center justify-center text-[#1f8f4d] dark:text-[#7ede99] hover:bg-[rgba(48,209,88,.12)] transition">
+                    <Icon name="check" size={12} />
+                  </button>
+                  <button onClick={() => setEditId(null)} title="取消"
+                    className="w-6 h-6 rounded-md flex items-center justify-center text-[var(--tx-3)] hover:bg-[var(--hov)] transition">
+                    <Icon name="close" size={12} />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="text-[12.5px] text-[var(--tx-1)]">{u.name}</span>
+                  <span className="ml-auto font-mono2 text-[10.5px] text-[var(--tx-3)]">{cnt} 人</span>
+                  <button onClick={() => { setEditId(u.id); setEditName(u.name); }} title="修改单位" disabled={!canEdit}
+                    className="w-6 h-6 rounded-md flex items-center justify-center text-[var(--tx-3)] hover:text-[var(--acc)] hover:bg-[var(--sel)] transition disabled:opacity-35">
+                    <Icon name="eye" size={12} />
+                  </button>
+                  <button onClick={() => onRemove(u.id)} title="删除单位" disabled={!canEdit}
+                    className="w-6 h-6 rounded-md flex items-center justify-center text-[var(--tx-3)] hover:text-[#d70015] dark:hover:text-[#ff8b84] hover:bg-[rgba(255,69,58,.1)] transition disabled:opacity-35">
+                    <Icon name="trash" size={12} />
+                  </button>
+                </>
+              )}
             </div>
           );
         })}
@@ -508,5 +532,104 @@ export function ExitScreen({ onRestart }: { onRestart: () => void }) {
         重新启动
       </button>
     </div>
+  );
+}
+
+/* ================= 新增人员（需求7） ================= */
+const joinYears = Array.from({ length: 2026 - 1950 + 1 }, (_, i) => 1950 + i).reverse();
+
+export function PersonAddModal({ units, nextId, onClose, onAdd }: {
+  units: Unit[]; nextId: number; onClose: () => void;
+  onAdd: (p: Person) => void;
+}) {
+  const [step, setStep] = useState<1 | 2>(1);
+  const [joinYear, setJoinYear] = useState(2010);
+  const [form, setForm] = useState({
+    name: "", gender: "男" as "男" | "女", identity: "公务员",
+    birth: "1990年1月", unitId: units[0]?.id ?? "0001", position: "科员",
+  });
+
+  const isPre2006 = joinYear < 2006;
+
+  const submit = () => {
+    if (!form.name.trim()) return;
+    onAdd(makePerson({
+      id: nextId, name: form.name.trim(), gender: form.gender, identity: form.identity,
+      unitId: form.unitId, position: form.position, birth: form.birth,
+      join: `${joinYear}年7月`, startYear: joinYear, isPre2006,
+    }));
+  };
+
+  const sel = "field w-full h-8 px-2 text-[12px]";
+
+  return (
+    <Modal title={step === 1 ? "新增人员 · 第一步" : "新增人员 · 第二步"} icon="user" onClose={onClose} w={440}
+      footer={
+        step === 1 ? (
+          <><Btn onClick={onClose}>取消</Btn><Btn kind="primary" onClick={() => setStep(2)}>确定</Btn></>
+        ) : (
+          <><Btn onClick={() => setStep(1)}>上一步</Btn><Btn kind="primary" onClick={submit} disabled={!form.name.trim()}>保存人员</Btn></>
+        )
+      }>
+      {step === 1 ? (
+        <div>
+          <label className="block text-[11px] text-[var(--tx-2)]">
+            参加工作时间（年份）
+            <select className={sel + " font-mono2 mt-1"} value={joinYear} onChange={(e) => setJoinYear(Number(e.target.value))}>
+              {joinYears.map((y) => <option key={y} value={y}>{y} 年</option>)}
+            </select>
+          </label>
+          <div className={`mt-3 rounded-lg border px-3 py-2.5 flex items-center gap-2.5 text-[12px] ${
+            isPre2006
+              ? "border-[rgba(10,132,255,.4)] bg-[var(--sel)] text-[var(--acc)]"
+              : "border-[rgba(48,209,88,.4)] bg-[rgba(48,209,88,.08)] text-[#1f8f4d] dark:text-[#7ede99]"
+          }`}>
+            <Icon name={isPre2006 ? "clock" : "check"} size={15} />
+            <span>系统判定：<b>{isPre2006 ? "2006年前参公（套改）" : "2006年后参公"}</b></span>
+          </div>
+          <p className="mt-2 text-[10.5px] text-[var(--tx-3)] leading-relaxed">
+            参加工作年份 {isPre2006 ? "早于" : "不早于"} 2006 年，将按「{isPre2006 ? "2006年前参公（套改）" : "2006年后参公"}」规则进行测算。
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-2.5">
+          <label className="block text-[11px] text-[var(--tx-2)] col-span-2">
+            姓名
+            <input autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="请输入姓名" className="field mt-1 w-full h-8 px-2.5 text-[12.5px]" />
+          </label>
+          <label className="block text-[11px] text-[var(--tx-2)]">
+            性别
+            <select className={sel + " mt-1"} value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value as "男" | "女" })}>
+              <option value="男">男</option><option value="女">女</option>
+            </select>
+          </label>
+          <label className="block text-[11px] text-[var(--tx-2)]">
+            出生年月
+            <input value={form.birth} onChange={(e) => setForm({ ...form, birth: e.target.value })} className="field mt-1 w-full h-8 px-2.5 text-[12.5px] font-mono2" />
+          </label>
+          <label className="block text-[11px] text-[var(--tx-2)]">
+            身份
+            <select className={sel + " mt-1"} value={form.identity} onChange={(e) => setForm({ ...form, identity: e.target.value })}>
+              <option value="公务员">公务员</option><option value="参公管理人员">参公管理人员</option><option value="机关技术工人">机关技术工人</option>
+            </select>
+          </label>
+          <label className="block text-[11px] text-[var(--tx-2)]">
+            职务
+            <input value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} className="field mt-1 w-full h-8 px-2.5 text-[12.5px]" />
+          </label>
+          <label className="block text-[11px] text-[var(--tx-2)] col-span-2">
+            所属单位
+            <select className={sel + " mt-1"} value={form.unitId} onChange={(e) => setForm({ ...form, unitId: e.target.value })}>
+              {units.map((u) => <option key={u.id} value={u.id}>[{u.id}] {u.name}</option>)}
+            </select>
+          </label>
+          <div className="col-span-2 rounded-lg border border-[var(--line)] bg-[var(--bg-3)] px-3 py-2 text-[11px] text-[var(--tx-2)] flex items-center gap-2">
+            <Icon name="info" size={13} className="text-[var(--acc)]" />
+            参加工作时间 <b className="font-mono2">{joinYear} 年</b> · 类型 <b>{isPre2006 ? "2006年前参公（套改）" : "2006年后参公"}</b>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
