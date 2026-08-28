@@ -114,11 +114,22 @@ function createWindow() {
   }
 
   /*
-   * 关键修复：不用 loadFile（file:// 协议下 Vite 的绝对路径 /assets/... 会失效导致白屏），
-   * 改为从内嵌 HTTP 服务加载（http://127.0.0.1:端口/），与局域网浏览器走同一代码路径。
+   * 加载策略：产物已打包为单一自包含 index.html（JS/CSS/WASM 全部内联），
+   * 优先从内嵌 HTTP 服务加载（http://127.0.0.1:端口/）——与局域网浏览器同一代码路径，
+   * 且 http origin 下 IndexedDB 可用（SQLite 持久化）；loadURL 失败时回退 loadFile。
    */
+  win.webContents.on("did-fail-load", (e, code, desc, url) => {
+    console.error(`[LOAD] 加载失败: code=${code} desc=${desc} url=${url}`);
+    win.webContents.openDevTools({ mode: "detach" });
+  });
+
   startLanServer(win, (port) => {
-    win.loadURL(`http://127.0.0.1:${port}/`);
+    const url = `http://127.0.0.1:${port}/`;
+    console.log(`[MAIN] 窗口加载地址: ${url}`);
+    win.loadURL(url).catch((err) => {
+      console.error("[MAIN] loadURL 失败，回退 loadFile:", err.message);
+      win.loadFile(indexFile);
+    });
   });
 
   /* Ctrl+Shift+I 打开开发者工具（调试用） */
