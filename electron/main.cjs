@@ -29,6 +29,7 @@ const MIME = {
   ".woff2": "font/woff2",
   ".ttf": "font/ttf",
   ".map": "application/json",
+  ".wasm": "application/wasm",
 };
 
 /* ---------- 获取本机局域网 IPv4 ---------- */
