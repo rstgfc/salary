@@ -1,6 +1,68 @@
 # 公务员工资测算系统 · 导出与测试指南
 
-> 架构：React + Vite + TailwindCSS（界面）· `src/core/calculator.ts`（由微信小程序 `utils/calculator.js` 移植的测算核心）· Electron（桌面 exe + 局域网 HTTP 服务）
+> 架构：React + Vite + TailwindCSS（界面）· `src/core/calculator.ts`（由微信小程序 `utils/calculator.js` 移植的测算核心）· SQLite（sql.js · WASM 本地库）· Electron（桌面 exe + 局域网 HTTP 服务）
+
+---
+
+## 〇、从 GitHub 下载源码并测试（完整流程）
+
+### 1. 环境准备（仅一次）
+- 安装 [Node.js 18+](https://nodejs.org)（`node -v` 验证）与 [Git](https://git-scm.com)（`git --version` 验证）
+- 配置国内镜像，避免依赖与 Electron 二进制下载失败：
+  ```bash
+  npm config set registry https://registry.npmmirror.com
+  ```
+
+### 2. 下载源码（二选一）
+```bash
+# 方式 A：Git 克隆（推荐，便于后续 git pull 同步更新）
+git clone https://github.com/你的用户名/你的仓库名.git
+cd 你的仓库名
+
+# 方式 B：网页下载 ZIP —— 仓库页面 → 绿色 Code 按钮 → Download ZIP → 解压
+```
+
+### 3. 安装依赖（Electron 镜像写入项目 .npmrc，一次配好）
+```bash
+cat > .npmrc << 'EOF'
+ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
+ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/
+EOF
+npm install
+```
+> 若 Electron 安装报 `Cannot find module '@electron/get'`：执行
+> `rm -rf node_modules/electron && npm install electron --save-dev` 重装。
+
+### 4. 构建 + 浏览器测试（最快验证路径）
+```bash
+npm run build          # 生成 dist/
+npm run dev            # 开发服务器（改代码自动热更新）
+```
+浏览器打开 `http://localhost:3000` → 登录页 → `admin / admin123`。
+
+**验收清单**：登录后左下角出现「正在装载本地数据库」→ 状态栏显示「SQLite 本地库」；
+左侧 8 人列表；切换人员右侧联动；「开始测算」生成演变明细；右下角聊天图标可拖拽对话。
+
+### 5. 桌面端测试（需要图形界面）
+```bash
+npx electron electron/main.cjs
+```
+窗口打开即桌面版；状态栏显示真实局域网地址（如 `http://192.168.x.x:8080`），
+同网段其他电脑浏览器输入该地址访问，功能一致。
+
+### 6. 打包 Windows exe（须在 Windows 上执行）
+```bash
+npm i -D electron electron-builder
+npm run build && npx electron-builder --win
+```
+产物在 `release/`：安装包 + 「便携版.exe」（免安装，拷贝即用）。
+
+### 7. 以后更新
+```bash
+git pull origin main   # 拉取 GitHub 上的新代码
+npm install            # 若依赖有变化
+npm run build          # 重新构建
+```
 
 ---
 
