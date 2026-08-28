@@ -115,9 +115,34 @@ npx electron-builder --win
 | 现象 | 处理 |
 |---|---|
 | `npm install` 很慢 | `npm config set registry https://registry.npmmirror.com` |
+| `Cannot find module '@electron/get'` / Electron 下载失败 | 见下方「Electron 下载失败专项处理」 |
 | 打包报 "cannot find module" | 确认已在根目录执行过 `npm install` 且 `dist/` 已生成 |
 | exe 启动后白屏 | 确认先执行过 `npm run build`（main.cjs 加载的是 dist/） |
 | 局域网地址显示为占位 `192.168.1.106` | 说明当前是纯浏览器预览（未走 exe 主进程），属正常降级 |
+
+### Electron 下载失败专项处理（`@electron/get` 报错）
+
+原因：安装 electron 时会从 GitHub 下载二进制，国内网络易中断。按顺序执行：
+
+```bash
+# 1. 配置国内镜像（推荐，一次性）
+export ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
+export ELECTRON_BUILDER_BINARIES_MIRROR="https://npmmirror.com/mirrors/electron-builder-binaries/"
+
+# 2. 删除损坏的 electron 并重装
+rm -rf node_modules/electron
+npm install electron --save-dev
+
+# 3. 验证
+npx electron --version
+```
+
+若仍失败，可把镜像写入项目 `.npmrc` 永久生效：
+```
+ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
+ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/
+```
+再执行 `npm cache clean --force` 后重装。Linux 下运行 `npx electron` 需要有图形界面（X11/Wayland）。
 
 ---
 
