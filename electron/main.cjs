@@ -43,7 +43,8 @@ function getLanIP() {
 }
 
 /* ---------- 局域网 HTTP 服务（SPA 回退 + 真实地址接口） ---------- */
-function startLanServer(win) {
+/* onReady(port)：服务监听成功后回调，主窗口据此 loadURL */
+function startLanServer(win, onReady) {
   const ip = getLanIP();
   let port = BASE_PORT;
   let server = null;
@@ -80,6 +81,7 @@ function startLanServer(win) {
       port = p;
       console.log(`[LAN] 局域网访问地址: http://${ip}:${port}`);
       if (win) win.webContents.send("lan-ready", { url: `http://${ip}:${port}` });
+      if (onReady) onReady(port);
     });
   };
 
@@ -110,8 +112,13 @@ function createWindow() {
     return;
   }
 
-  startLanServer(win);
-  win.loadFile(indexFile);
+  /*
+   * 关键修复：不用 loadFile（file:// 协议下 Vite 的绝对路径 /assets/... 会失效导致白屏），
+   * 改为从内嵌 HTTP 服务加载（http://127.0.0.1:端口/），与局域网浏览器走同一代码路径。
+   */
+  startLanServer(win, (port) => {
+    win.loadURL(`http://127.0.0.1:${port}/`);
+  });
 
   /* Ctrl+Shift+I 打开开发者工具（调试用） */
   win.webContents.on("before-input-event", (e, input) => {
