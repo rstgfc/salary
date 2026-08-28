@@ -93,23 +93,20 @@ npx electron-builder --win
 
 ---
 
-## 四、存储格式与千人级数据设计
+## 四、存储格式与千人级数据设计（已实现 SQLite 模式）
 
-**当前阶段**：人员与演变数据为内存态 JSON 结构（`src/data.ts`，与小程序后台同构）；
-主题 / 注册 / 机器码等轻量配置存 `localStorage`。
+**当前状态**：人员与单位数据已切换为 **SQLite 数据库**存储，不再是纯内存 JSON。
 
-**正式存储（推荐落地方案）**：
+- 引擎：**sql.js**（SQLite 官方 C 引擎编译为 WASM），浏览器与 Electron 同源同构，无需原生编译（避免 better-sqlite3 的 node-gyp 重编译问题），打包 exe 零额外配置。
+- 表结构：`units` / `persons`（`persons` 含可检索列 `id/name/unit_id/tag/employ` + 完整 JSON 文档 `doc`，嵌套的工资演变台账整体读写），并对 `unit_id`、`name` 建索引。
+- 持久化：数据库二进制经 250ms 防抖整体写入 **IndexedDB**；应用启动自动装载，空库时以演示台账播种。WASM/IndexedDB 不可用时自动降级为内存态。
+- 数据交换：`src/core/db.ts` 提供 `exportJson` / `importJson`，与微信小程序后台按同一 JSON Schema 互导，导出即备份。
+- 界面反馈：启动时显示「正在装载本地数据库」画面；状态栏显示「SQLite 本地库 / 内存态」标识。
 
-| 层 | 技术 | 说明 |
-|---|---|---|
-| 单机主库 | **SQLite**（`better-sqlite3`） | 单文件 `gw_salary.db`，置于 exe 同目录 `data/` 下；千人～百万行无压力，支持事务与索引，Electron 主进程内直连 |
-| 表结构 | `units` / `persons` / `salary_history` / `allowances` | `persons` 存基本信息 + 测算参数（参工年份/现职/低职/学历/扣减年）；`salary_history` 一行一条演变记录（外键关联人员） |
-| 局域网访问 | 主进程内嵌 REST API | 浏览器端不直连数据库，统一走 `http://本机IP:8080/api/*`，与桌面窗口共享同一套接口，天然支持多人并发只读 + 权限写入 |
-| 数据交换 | **JSON 导入导出** | 与微信小程序后台按同一 JSON Schema 互导；导出即备份 |
-| 纯浏览器降级 | IndexedDB | 未走 exe 时（直接浏览器打开 dist）用 IndexedDB 暂存，接口层保持不变 |
+**分层说明**：人员/单位主数据走 SQLite；测算参数存档、工资面板、聊天记录等按人/按会话的轻量 KV 仍走 `localStorage`；主题/注册/机器码等配置亦在 `localStorage`。
 
 **千人级渲染**：左侧人员列表在该量级下改为「搜索 + 分页」（当前内置检索已可定位），
-后续可平滑升级为虚拟滚动，数据层接口无需改动。
+后续可平滑升级为虚拟滚动，数据层接口（`src/core/db.ts`）无需改动。
 
 ---
 

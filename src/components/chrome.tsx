@@ -166,9 +166,9 @@ export function UserStrip({ userName, canEdit, onSwitch }: {
 }
 
 /* ============ 状态栏 ============ */
-export function StatusBar({ personCount, unitCount, registered, lastRecalc, onRegister }: {
+export function StatusBar({ personCount, unitCount, registered, lastRecalc, onRegister, storage }: {
   personCount: number; unitCount: number; registered: { code: string; at: string } | null;
-  lastRecalc: string; onRegister: () => void;
+  lastRecalc: string; onRegister: () => void; storage?: "sqlite" | "memory";
 }) {
   const now = useClock();
   /* 运行在 Electron（exe）内时，主进程会提供真实局域网地址；浏览器预览时静默降级 */
@@ -187,6 +187,19 @@ export function StatusBar({ personCount, unitCount, registered, lastRecalc, onRe
   return (
     <div className="h-[26px] shrink-0 flex items-center gap-3 px-3 border-t border-[var(--line)] bg-[var(--bg-1)] text-[11px] text-[var(--tx-2)] select-none">
       <span className="font-mono2 text-[var(--tx-3)]">BUILD 2026.01</span>
+      {storage && (
+        <span
+          title={storage === "sqlite" ? "数据存储于本地 SQLite 数据库（IndexedDB 持久化），支持千人级" : "WASM/IndexedDB 不可用，当前为内存态"}
+          className={`flex items-center gap-1 px-1.5 py-px rounded border ${
+            storage === "sqlite"
+              ? "border-[rgba(10,132,255,.45)] text-[var(--acc)] bg-[var(--sel)]"
+              : "border-[rgba(255,159,10,.5)] text-[#a26603] dark:text-[#ffbe69] bg-[rgba(255,159,10,.1)]"
+          }`}
+        >
+          <Icon name="catalog" size={11} />
+          {storage === "sqlite" ? "SQLite 本地库" : "内存态"}
+        </span>
+      )}
       <button onClick={onRegister}
         className={`flex items-center gap-1 px-1.5 py-px rounded border transition hover:brightness-110 ${
           registered

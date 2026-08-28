@@ -12,6 +12,9 @@ import {
 import { AllowanceModal, CalcModal, CatalogModal } from "./components/tools";
 import { Icon } from "./components/icons";
 import { VerifyReport, recalcPerson, verifyPerson, PERSON_CALC_INPUTS } from "./core/calculator";
+import {
+  initDb, listPersons, listUnits, mirrorPersons, mirrorUnits, bindPersistors, getDbStats,
+} from "./core/db";
 
 type ModalKind =
   | "query" | "unit" | "person" | "allowance" | "recalc" | "rolling"
@@ -57,8 +60,10 @@ function getInitSession(): Session | null {
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(getInitSession);
-  const [persons, setPersons] = useState<Person[]>(PEOPLE);
-  const [units, setUnits] = useState<Unit[]>(INITIAL_UNITS);
+  const [persons, setPersons] = useState<Person[]>([]);
+  const [units, setUnits] = useState<Unit[]>([]);
+  const [dbReady, setDbReady] = useState(false);
+  const [dbMode, setDbMode] = useState<"sqlite" | "memory">("memory");
   const [selectedId, setSelectedId] = useState<number | null>(1);
   const [query, setQuery] = useState("");
   const [modal, setModal] = useState<ModalKind>(null);
@@ -92,6 +97,38 @@ export default function App() {
     document.documentElement.setAttribute("data-theme", theme);
     try { localStorage.setItem(LS_THEME, theme); } catch { /* noop */ }
   }, [theme]);
+
+  /* ---------- SQLite 数据库装载（sql.js · WASM） ---------- */
+  useEffect(() => {
+    let on = true;
+    initDb()
+      .then(() => {
+        if (!on) return;
+        setUnits(listUnits());
+        setPersons(listPersons());
+        setDbMode("sqlite");
+        setDbReady(true);
+      })
+      .catch(() => {
+        /* WASM/IndexedDB 不可用时降级为内存态（静态台账） */
+        if (!on) return;
+        setUnits(INITIAL_UNITS);
+        setPersons(PEOPLE);
+        setDbMode("memory");
+        setDbReady(true);
+      });
+    return () => { on = false; };
+  }, []);
+
+  /* ---------- 状态变更 → 镜像写库（防抖落盘 IndexedDB） ---------- */
+  useEffect(() => { if (dbReady) mirrorPersons(persons); }, [persons, dbReady]);
+  useEffect(() => { if (dbReady) mirrorUnits(units); }, [units, dbReady]);
+  useEffect(() => {
+    bindPersistors(
+      () => setPersons(listPersons()),
+      () => setUnits(listUnits())
+    );
+  }, []);
 
   /* ---------- 基础 ---------- */
   const pushToast = useCallback((type: Toast["type"], msg: string) => {
@@ -269,6 +306,28 @@ export default function App() {
 
   if (exited) return <ExitScreen onRestart={() => { setExited(false); pushToast("info", "系统已重新启动，局域网服务已恢复"); }} />;
 
+  /* ---------- SQLite 装载画面 ---------- */
+  if (!dbReady) {
+    return (
+      <div className="app-bg h-full w-full flex flex-col items-center justify-center relative overflow-hidden">
+        <div className="pointer-events-none absolute -top-32 left-1/2 -translate-x-1/2 w-[560px] h-[300px] rounded-full opacity-70"
+          style={{ background: "radial-gradient(circle, rgba(10,132,255,.14), transparent 65%)" }} />
+        <div className="relative w-14 h-14 rounded-2xl flex items-center justify-center border border-[rgba(10,132,255,.4)]"
+          style={{ background: "linear-gradient(140deg, rgba(10,132,255,.2), rgba(90,200,250,.07))" }}>
+          <span className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--acc)] opacity-60" />
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-[var(--acc)]" />
+          </span>
+        </div>
+        <p className="mt-5 font-disp text-[15px] font-semibold text-[var(--tx-1)] tracking-wide">正在装载本地数据库</p>
+        <p className="mt-1.5 text-[11.5px] text-[var(--tx-3)] flex items-center gap-1.5">
+          <Icon name="catalog" size={12} />
+          SQLite · WASM 引擎 · IndexedDB 持久化
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="app-bg h-full w-full flex flex-col overflow-hidden">
       <TitleBar
@@ -337,6 +396,7 @@ export default function App() {
         registered={registered}
         lastRecalc={lastRecalc}
         onRegister={() => setModal("register")}
+        storage={dbMode}
       />
 
       {/* ---------- 弹窗 ---------- */}
