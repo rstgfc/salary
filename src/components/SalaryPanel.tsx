@@ -75,12 +75,13 @@ function Divider() {
 }
 
 /* ---------- 当前工资面板（需求6） ---------- */
-export function SalaryPanel({ personId, results, latestDutyIndex, canEdit, onToast }: {
+export function SalaryPanel({ personId, results, latestDutyIndex, canEdit, onToast, altitudeSubsidy = 0 }: {
   personId: number;
   results: CalcRunResult | null;
   latestDutyIndex: number;
   canEdit: boolean;
   onToast: (t: "success" | "error" | "info", m: string) => void;
+  altitudeSubsidy?: number; // 需求6：海拔折算工龄补贴
 }) {
   const [addons, setAddons] = useState<AddonItem[]>(DEFAULT_ADDONS);
   const [allowances, setAllowances] = useState<AllowanceRow[]>(DEFAULT_ALLOWANCES);
@@ -138,9 +139,27 @@ export function SalaryPanel({ personId, results, latestDutyIndex, canEdit, onToa
   const levelGrade = `${finalLevel}-${finalGrade}`;
   const levelWage = useMemo(() => Calculator.getSalary(finalLevel, finalGrade), [finalLevel, finalGrade]);
 
-  const addonsTotal = addons.reduce((s, a) => s + a.steps * a.unit, 0);
+  /* 需求11：一个档差 = 当前级别工资相邻两档之差 */
+  const gradeStep = useMemo(() => {
+    const cur = Calculator.getSalary(finalLevel, finalGrade);
+    const next = Calculator.getSalary(finalLevel, finalGrade + 1);
+    if (next > cur) return next - cur;
+    const prev = Calculator.getSalary(finalLevel, finalGrade - 1);
+    return cur > prev ? cur - prev : 0;
+  }, [finalLevel, finalGrade]);
+
+  /* 需求11：各加项每档金额 = 一个档差；合计档数叠加到级别档次上 */
+  const extraSteps = addons.reduce((s, a) => s + a.steps, 0);
+  const addonsTotal = extraSteps * gradeStep;
   const basicSubtotal = dutyWage + levelWage + addonsTotal;
-  const allowancesTotal = allowances.reduce((s, a) => s + a.amount, 0);
+  const displayGrade = finalGrade + extraSteps;
+
+  /* 需求6：津贴里的"折算工龄补贴"由海拔累计驱动 */
+  const effectiveAllowances = useMemo(
+    () => allowances.map((a) => (a.id === "zheSuan" ? { ...a, amount: altitudeSubsidy, detail: "按海拔档次累计" } : a)),
+    [allowances, altitudeSubsidy]
+  );
+  const allowancesTotal = effectiveAllowances.reduce((s, a) => s + a.amount, 0);
   const total = basicSubtotal + allowancesTotal;
 
   const now = new Date();
@@ -181,21 +200,21 @@ export function SalaryPanel({ personId, results, latestDutyIndex, canEdit, onToa
               )}
               <span className="text-[11px] text-[var(--tx-2)]">档</span>
             </span>
-            <span className="shrink-0 font-mono2 text-[11.5px] text-[var(--tx-1)] w-[56px] text-right">{fmt(a.steps * a.unit)}元</span>
+            <span className="shrink-0 font-mono2 text-[11.5px] text-[var(--tx-1)] w-[56px] text-right">{fmt(a.steps * gradeStep)}元</span>
           </div>
         ))}
-        <Row label="基本工资小计" detail={`${levelGrade}（以上合计）`} amount={basicSubtotal} accent canEdit={canEdit} />
+        <Row label="基本工资小计" detail={`${finalLevel}-${displayGrade}（以上合计）`} amount={basicSubtotal} accent canEdit={canEdit} />
 
         <Divider />
 
         <p className="px-3 pt-1 pb-1 text-[10px] font-semibold text-[var(--tx-3)] tracking-wide">津贴补贴</p>
-        {allowances.map((a) => (
+        {effectiveAllowances.map((a) => (
           <Row
             key={a.id}
             label={a.label}
             detail={a.detail}
             amount={a.amount}
-            editable
+            editable={a.id !== "zheSuan"}
             canEdit={canEdit}
             onAmount={(v) => setAllowanceAmount(a.id, v)}
           />
@@ -235,7 +254,7 @@ export function SalaryPanel({ personId, results, latestDutyIndex, canEdit, onToa
 
       {/* 底注 */}
       <div className="shrink-0 px-3 py-2 border-t border-[var(--line)] bg-[var(--head)] text-[10px] text-[var(--tx-3)] leading-relaxed">
-        基本工资 = 职务 + 级别 + 各加项；合计 = 基本工资小计 + 津贴补贴。
+        每档金额 = 当前级别一个档差（{fmt(gradeStep)}元）；小计档次 = 级别档 + 各加项档数合计。折算工龄补贴按海拔累计。
       </div>
     </div>
   );

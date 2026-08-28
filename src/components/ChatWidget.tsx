@@ -153,12 +153,45 @@ export function ChatWidget({ user, userName, onToast }: {
     reader.readAsDataURL(f);
   };
 
-  /* ---------- 面板定位（跟随图标，自动避开边缘） ---------- */
-  const PW = 340, PH = 470, ICON = 52;
-  const pw = typeof window !== "undefined" ? window.innerWidth : 1200;
-  const ph = typeof window !== "undefined" ? window.innerHeight : 800;
-  const panelLeft = Math.min(Math.max(pos.x + ICON - PW, 8), pw - PW - 8);
-  const panelTop = pos.y - PH - 14 < 8 ? Math.min(pos.y + ICON + 14, ph - PH - 8) : pos.y - PH - 14;
+  /* ---------- 需求1：面板独立定位（标题栏拖动）+ 可调节大小 ---------- */
+  const [panelPos, setPanelPos] = useState<{ x: number; y: number }>(() =>
+    load("gw_chat_pp_v1", { x: Math.max(8, (typeof window !== "undefined" ? window.innerWidth : 1200) - 380), y: 110 }));
+  const [panelSize, setPanelSize] = useState<{ w: number; h: number }>(() => load("gw_chat_ps_v1", { w: 340, h: 470 }));
+  const winDrag = useRef<{ mode: "move" | "resize"; startX: number; startY: number; origX: number; origY: number; origW: number; origH: number } | null>(null);
+
+  const onTitleDown = (e: React.PointerEvent) => {
+    winDrag.current = { mode: "move", startX: e.clientX, startY: e.clientY, origX: panelPos.x, origY: panelPos.y, origW: 0, origH: 0 };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const onResizeDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    winDrag.current = { mode: "resize", startX: e.clientX, startY: e.clientY, origX: 0, origY: 0, origW: panelSize.w, origH: panelSize.h };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const onWinMove = (e: React.PointerEvent) => {
+    const d = winDrag.current;
+    if (!d) return;
+    const dx = e.clientX - d.startX;
+    const dy = e.clientY - d.startY;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    if (d.mode === "move") {
+      setPanelPos({
+        x: Math.min(Math.max(d.origX + dx, 60 - panelSize.w), vw - 60),
+        y: Math.min(Math.max(d.origY + dy, 0), vh - 44),
+      });
+    } else {
+      setPanelSize({
+        w: Math.min(Math.max(d.origW + dx, 300), Math.max(300, vw - panelPos.x - 8)),
+        h: Math.min(Math.max(d.origH + dy, 320), Math.max(320, vh - panelPos.y - 8)),
+      });
+    }
+  };
+  const onWinUp = () => {
+    if (!winDrag.current) return;
+    winDrag.current = null;
+    save("gw_chat_pp_v1", panelPos);
+    save("gw_chat_ps_v1", panelSize);
+  };
 
   const myMsgs = (m: Msg) => m.user === user;
 
@@ -186,17 +219,22 @@ export function ChatWidget({ user, userName, onToast }: {
         <div
           className="fixed z-[91] flex flex-col rounded-xl overflow-hidden anim-panel"
           style={{
-            left: panelLeft, top: panelTop, width: PW, height: PH,
+            left: panelPos.x, top: panelPos.y, width: panelSize.w, height: panelSize.h,
             background: "var(--bg-2)", border: "1px solid var(--line)",
             boxShadow: "0 24px 64px rgba(10,20,45,.35)",
           }}
         >
-          {/* 头部 */}
-          <div className="shrink-0 flex items-center gap-2 px-3 h-11" style={{ background: "linear-gradient(120deg,#0a6cd6,#0a84ff 60%,#19b8f0)" }}>
+          {/* 头部（需求1：可拖动整个对话框） */}
+          <div
+            onPointerDown={onTitleDown} onPointerMove={onWinMove} onPointerUp={onWinUp}
+            className="shrink-0 flex items-center gap-2 px-3 h-11 cursor-move touch-none select-none"
+            style={{ background: "linear-gradient(120deg,#0a6cd6,#0a84ff 60%,#19b8f0)" }}
+            title="拖动移动窗口"
+          >
             <Icon name="chat" size={16} className="text-white" />
             <span className="text-[13px] font-semibold text-white tracking-wide">内部消息</span>
             <span className="text-[10px] text-white/75">· {userName}</span>
-            <button onClick={() => setOpen(false)} className="ml-auto w-6 h-6 rounded-md flex items-center justify-center text-white/85 hover:bg-white/15 transition">
+            <button onClick={() => setOpen(false)} onPointerDown={(e) => e.stopPropagation()} className="ml-auto w-6 h-6 rounded-md flex items-center justify-center text-white/85 hover:bg-white/15 transition">
               <Icon name="close" size={13} />
             </button>
           </div>
@@ -316,6 +354,17 @@ export function ChatWidget({ user, userName, onToast }: {
               </div>
             </>
           )}
+
+          {/* 需求1：右下角缩放手柄 */}
+          <div
+            onPointerDown={onResizeDown} onPointerMove={onWinMove} onPointerUp={onWinUp}
+            className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize touch-none flex items-end justify-end p-[2.5px] text-[var(--tx-3)] hover:text-[var(--acc)] transition"
+            title="拖动调节窗口大小"
+          >
+            <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+              <path d="M9 1L1 9M9 5L5 9M9 8.5L8.5 9" />
+            </svg>
+          </div>
         </div>
       )}
     </>

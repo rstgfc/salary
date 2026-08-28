@@ -40,15 +40,15 @@ export function TitleBar({ theme, onTheme, onClose, onMin, onZoom }: {
 
   return (
     <div className="h-10 shrink-0 relative flex items-center px-3.5 border-b border-[var(--line)] bg-[var(--head)] select-none">
-      {/* 左侧：品牌标题 */}
-      <div className="flex items-center gap-2 min-w-0">
-        <Logo size={17} />
-        <span className="font-disp font-semibold tracking-wide text-[13px] text-[var(--tx-1)] truncate">公务员工资测算系统</span>
+      {/* 需求2：品牌标题 + logo 居中，logo 放大 */}
+      <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2.5 min-w-0 pointer-events-none">
+        <Logo size={23} />
+        <span className="font-disp font-semibold tracking-wide text-[14px] text-[var(--tx-1)] truncate">公务员工资测算系统</span>
         <span className="font-mono2 text-[10px] px-1.5 py-px rounded border border-[rgba(10,132,255,.4)] text-[var(--acc)] bg-[var(--sel)] shrink-0">V8.2</span>
       </div>
 
-      {/* 中部：主题切换 + 局域网 + 时钟 */}
-      <div className="ml-auto mr-3 flex items-center gap-2.5 text-[11px] text-[var(--tx-2)]">
+      {/* 左侧：主题切换 + 局域网 + 时钟 */}
+      <div className="mr-3 flex items-center gap-2.5 text-[11px] text-[var(--tx-2)]">
         <button
           onClick={() => onTheme(theme === "light" ? "dark" : "light")}
           title={theme === "light" ? "切换到夜间模式" : "切换到日间模式"}
@@ -68,7 +68,7 @@ export function TitleBar({ theme, onTheme, onClose, onMin, onZoom }: {
       </div>
 
       {/* 右侧：窗口控制按钮（全屏 / 折叠 / 最小化 / 关闭） */}
-      <div className="flex items-center gap-1 shrink-0">
+      <div className="ml-auto flex items-center gap-1 shrink-0">
         <button onClick={toggleFullscreen} title={isFs ? "退出全屏" : "全屏"} className={`${winBtn} hover:bg-[rgba(10,132,255,.85)]`}>
           <Icon name="fullscreen" size={13} />
         </button>
@@ -116,26 +116,26 @@ const SEP_AFTER: MenuKey[] = ["person", "allowance", "rolling", "del", "calc", "
 /* 需求5：左侧竖列图标栏（鼠标指向提示功能） */
 export function MenuRail({ onMenu }: { onMenu: (k: MenuKey) => void }) {
   return (
-    <div className="w-[54px] shrink-0 flex flex-col items-center gap-1 py-2.5 border-r border-[var(--line)] bg-[var(--bg-1)] overflow-visible">
+    <div className="w-[70px] shrink-0 flex flex-col items-center gap-1 py-2.5 border-r border-[var(--line)] bg-[var(--bg-1)] overflow-y-auto overflow-x-hidden">
       {MENUS.map((m) => (
         <React.Fragment key={m.key}>
-          <div className="relative group shrink-0">
-            <button
-              onClick={() => onMenu(m.key)}
-              className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all active:scale-90 ${
-                m.danger
-                  ? "text-[#c2554f] hover:bg-[rgba(255,69,58,.14)] hover:text-[#e0453a]"
-                  : "text-[var(--tx-2)] hover:bg-[var(--hov)] hover:text-[var(--acc)]"
-              }`}
-            >
-              <Icon name={m.icon} size={17} />
-            </button>
-            {/* 悬停提示 */}
-            <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 px-2.5 py-1.5 rounded-md text-[11.5px] font-medium whitespace-nowrap opacity-0 translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-150 z-[60] bg-[var(--tx-1)] text-[var(--bg-0)] shadow-[0_6px_18px_rgba(10,20,45,.3)]">
-              {m.label}
-            </span>
-          </div>
-          {SEP_AFTER.includes(m.key) && <span className="w-6 h-px bg-[var(--line)] my-0.5 shrink-0" />}
+          {/* 需求4：图标放大 + 下方文字 + 炫酷悬停（上浮 / 发光 / 左侧光条 / 图标缩放） */}
+          <button
+            onClick={() => onMenu(m.key)}
+            className={`group relative w-[60px] shrink-0 rounded-xl py-2 flex flex-col items-center gap-1.5 transition-all duration-200 ease-out active:scale-90 hover:-translate-y-0.5 ${
+              m.danger
+                ? "text-[#c2554f] hover:text-[#e0453a] hover:bg-[rgba(255,69,58,.12)] hover:shadow-[0_4px_18px_rgba(255,69,58,.28)]"
+                : "text-[var(--tx-2)] hover:text-[var(--acc)] hover:bg-[var(--sel)] hover:shadow-[0_4px_18px_rgba(10,132,255,.25)]"
+            }`}
+          >
+            <span
+              className="absolute left-0 top-1/2 -translate-y-1/2 h-0 w-[3px] rounded-r-full transition-all duration-300 group-hover:h-7"
+              style={{ background: m.danger ? "#ff453a" : "var(--acc)" }}
+            />
+            <Icon name={m.icon} size={21} className="transition-transform duration-200 group-hover:scale-110" />
+            <span className="text-[9.5px] leading-none font-medium whitespace-nowrap">{m.label}</span>
+          </button>
+          {SEP_AFTER.includes(m.key) && <span className="w-9 h-px bg-[var(--line)] my-0.5 shrink-0" />}
         </React.Fragment>
       ))}
     </div>
@@ -143,13 +143,34 @@ export function MenuRail({ onMenu }: { onMenu: (k: MenuKey) => void }) {
 }
 
 /* 需求4：用户信息条（替换原"测算核心 calculator.js 已接入"位置） */
-export function UserStrip({ userName, canEdit, onSwitch }: {
+export function UserStrip({ userName, canEdit, onSwitch, onRename }: {
   userName: string; canEdit: boolean; onSwitch: () => void;
+  onRename: (name: string) => void; // 需求9：用户名可修改
 }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(userName);
+  useEffect(() => setDraft(userName), [userName]);
+  const commit = () => {
+    const v = draft.trim();
+    if (v && v !== userName) onRename(v);
+    setEditing(false);
+  };
   return (
     <div className="h-8 shrink-0 flex items-center gap-2 px-3 border-b border-[var(--line)] bg-[var(--bg-1)] text-[11px] select-none">
       <Icon name="user" size={12} className="text-[var(--tx-3)]" />
-      <span className="text-[var(--tx-2)]">当前用户：<b className="text-[var(--tx-1)]">{userName}</b></span>
+      <span className="text-[var(--tx-2)] flex items-center gap-0.5">当前用户：
+        {editing ? (
+          <input
+            autoFocus value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setEditing(false); }}
+            className="w-24 h-5 px-1.5 text-[11px] rounded border border-[rgba(10,132,255,.55)] bg-[var(--bg-2)] text-[var(--tx-1)] outline-none focus:shadow-[0_0_0_2px_rgba(10,132,255,.18)]"
+          />
+        ) : (
+          <b className="text-[var(--acc)] cursor-pointer hover:underline decoration-dotted underline-offset-2" title="点击修改用户名" onClick={() => setEditing(true)}>{userName}</b>
+        )}
+      </span>
       <span className={`px-1.5 py-px rounded border text-[10px] ${
         canEdit
           ? "border-[rgba(48,209,88,.45)] text-[#1f8f4d] dark:text-[#7ede99] bg-[rgba(48,209,88,.1)]"
@@ -166,9 +187,11 @@ export function UserStrip({ userName, canEdit, onSwitch }: {
 }
 
 /* ============ 状态栏 ============ */
-export function StatusBar({ personCount, unitCount, registered, lastRecalc, onRegister, storage }: {
+export function StatusBar({ personCount, unitCount, registered, lastRecalc, onRegister, storage, onCopyLan, remoteCount }: {
   personCount: number; unitCount: number; registered: { code: string; at: string } | null;
   lastRecalc: string; onRegister: () => void; storage?: "sqlite" | "memory";
+  onCopyLan?: (url: string) => void; // 需求5：点击地址复制
+  remoteCount?: number;              // 需求8：远程连接人数
 }) {
   const now = useClock();
   /* 运行在 Electron（exe）内时，主进程会提供真实局域网地址；浏览器预览时静默降级 */
@@ -210,10 +233,21 @@ export function StatusBar({ personCount, unitCount, registered, lastRecalc, onRe
         {registered ? `已注册 ${registered.code}` : "试用版 · 点击注册"}
       </button>
       <span className="w-px h-3.5 bg-[var(--line)]" />
-      <span className="flex items-center gap-1.5" title={lanLive ? "主进程 HTTP 服务运行中，局域网内可用浏览器访问" : "浏览器预览模式（exe 运行时将显示真实地址）"}>
+      {/* 需求5：局域网地址（点击复制）+ 需求8：远程连接人数 */}
+      <span className="flex items-center gap-1.5" title={lanLive ? "主进程 HTTP 服务运行中，点击地址可复制" : "浏览器预览模式（exe 运行时将显示真实地址）"}>
         <span className={`w-1.5 h-1.5 rounded-full ${lanLive ? "bg-[#30d158] live-dot" : "bg-[var(--tx-3)]"}`} />
-        局域网服务
-        <span className={`font-mono2 ${lanLive ? "text-[#1f8f4d] dark:text-[#7ede99]" : "text-[var(--acc)]"}`}>{lanUrl}</span>
+        局域网地址
+        <button
+          onClick={() => onCopyLan?.(lanUrl)}
+          className={`font-mono2 underline decoration-dotted underline-offset-2 cursor-pointer transition hover:opacity-75 ${lanLive ? "text-[#1f8f4d] dark:text-[#7ede99]" : "text-[var(--acc)]"}`}
+          title="点击复制到剪贴板"
+        >
+          {lanUrl}
+        </button>
+        <span className="flex items-center gap-1 ml-1 px-1.5 py-px rounded-full border border-[rgba(90,200,250,.4)] bg-[rgba(90,200,250,.08)] text-[#0a6cd6] dark:text-[#93d9fb]" title="远程连接人数">
+          <Icon name="lan" size={10} />
+          <b className="font-mono2">{remoteCount ?? 0}</b>人在线
+        </span>
       </span>
       <span className="w-px h-3.5 bg-[var(--line)]" />
       <span>人员 <b className="font-mono2 text-[var(--tx-1)]">{personCount}</b></span>

@@ -92,6 +92,45 @@ export default function App() {
     try { localStorage.removeItem(LS_SESSION); } catch { /* noop */ }
   };
 
+  /* 需求9：修改当前用户名 */
+  const handleRename = (name: string) => {
+    setSession((s) => {
+      if (!s) return s;
+      const next = { ...s, name };
+      try { localStorage.setItem(LS_SESSION, JSON.stringify(next)); } catch { /* noop */ }
+      return next;
+    });
+    pushToast("success", `用户名已修改为「${name}」`);
+  };
+
+  /* 需求5：点击局域网地址复制到剪贴板 */
+  const handleCopyLan = (url: string) => {
+    navigator.clipboard.writeText(url)
+      .then(() => pushToast("success", `局域网地址已复制：${url}`))
+      .catch(() => pushToast("error", "复制失败，请手动选择文本"));
+  };
+
+  /* 需求8：远程连接人数（localStorage 心跳，统计近15秒活跃会话） */
+  const [remoteCount, setRemoteCount] = useState(1);
+  useEffect(() => {
+    const KEY = "gw_lan_presence";
+    let sid = sessionStorage.getItem("gw_sid");
+    if (!sid) { sid = Math.random().toString(36).slice(2, 10); sessionStorage.setItem("gw_sid", sid); }
+    const beat = () => {
+      try {
+        const now = Date.now();
+        const map = JSON.parse(localStorage.getItem(KEY) ?? "{}") as Record<string, number>;
+        map[sid] = now;
+        for (const key of Object.keys(map)) if (now - map[key] > 15000) delete map[key];
+        localStorage.setItem(KEY, JSON.stringify(map));
+        setRemoteCount(Math.max(1, Object.keys(map).length));
+      } catch { setRemoteCount(1); }
+    };
+    beat();
+    const t = setInterval(beat, 5000);
+    return () => clearInterval(t);
+  }, []);
+
   /* ---------- 主题 ---------- */
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -147,7 +186,9 @@ export default function App() {
     if (!k) return persons;
     return persons.filter((p) => {
       const un = units.find((u) => u.id === p.unitId)?.name ?? "";
-      return p.name.toLowerCase().includes(k) || String(p.id) === k || p.unitId.includes(k) || un.includes(k);
+      /* 需求7：检索范围增加职务 */
+      return p.name.toLowerCase().includes(k) || String(p.id) === k || p.unitId.includes(k)
+        || un.includes(k) || (p.position ?? "").toLowerCase().includes(k);
     });
   }, [persons, query, units]);
 
@@ -338,7 +379,7 @@ export default function App() {
         onZoom={() => { setSideHidden((v) => !v); }}
       />
       {/* 需求4：用户信息条（替换原菜单栏位置） */}
-      <UserStrip userName={session.name} canEdit={canEdit} onSwitch={handleLogout} />
+      <UserStrip userName={session.name} canEdit={canEdit} onSwitch={handleLogout} onRename={handleRename} />
 
       <div className="flex-1 flex min-h-0">
         {/* 需求5：左侧竖列图标菜单 */}
@@ -397,6 +438,8 @@ export default function App() {
         lastRecalc={lastRecalc}
         onRegister={() => setModal("register")}
         storage={dbMode}
+        onCopyLan={handleCopyLan}
+        remoteCount={remoteCount}
       />
 
       {/* ---------- 弹窗 ---------- */}

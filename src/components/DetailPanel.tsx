@@ -58,11 +58,17 @@ const reasonLabel = (r: string) =>
   r.replace(/两年晋升级别档次/g, "两年晋档").replace(/五年晋升级别（就近就高）/g, "五年晋级");
 
 /* ---------- 初始化职务变化列表 ---------- */
+/* 需求10：上一条为职级（101-111）时，新增职级向更高递增；否则职务正常晋升 */
+function nextDutyAfter(lastIndex: number): number {
+  if (lastIndex >= 101 && lastIndex <= 111) return Math.max(101, lastIndex - 1);
+  return POLICY_CONFIG.getNextDuty(lastIndex);
+}
+
 function buildInitList(type: CalcType, startYear: number, currentDutyIndex: number, currentDutyYear: number, educationIndex: number): PosChange[] {
   if (type === "pre2006") {
     const di = DUTY_VALUES[currentDutyIndex];
-    const yr = currentDutyYear || 2002;
-    return [{ year: yr + 3, dutyIndex: POLICY_CONFIG.getNextDuty(di), reason: "职务晋升" }];
+    /* 需求10：第一条职务变化默认 2008 年 */
+    return [{ year: 2008, dutyIndex: POLICY_CONFIG.getNextDuty(di), reason: "职务晋升" }];
   }
   const eduVal = EDUCATION_VALUES[educationIndex];
   const ec = POLICY_CONFIG.EDUCATION[eduVal];
@@ -98,9 +104,39 @@ function deriveParams(p: Person): CalcRunInput {
 }
 
 /* ---------- 详细资料行类型（需求6） ---------- */
-interface AltRow { year: number; value: string; }
+interface AltRow { ym: string; tier: number; }
 interface AssessRow { year: number; result: string; }
 const ASSESS_OPTS = ["优秀", "称职", "基本称职", "不称职", "不定等次"];
+
+/* 需求6：海拔档次 → 折算工龄补贴标准（元/年） */
+const ALT_TIERS = [
+  { label: "3500以下", amount: 0 },
+  { label: "3500米-3999米", amount: 34 },
+  { label: "4000米-4499米", amount: 45 },
+  { label: "4500米以上", amount: 68 },
+];
+
+/* 需求6：由参工时间（如"1972年9月"）解析出"YYYY-MM" */
+function joinToYm(join: string): string {
+  const m = /(\d{4})年(\d{1,2})月/.exec(join ?? "");
+  if (m) return `${m[1]}-${String(m[2]).padStart(2, "0")}`;
+  return `${new Date().getFullYear()}-01`;
+}
+
+/* 需求6：每年1月按当时海拔档次累加至当前年份 */
+function calcAltitudeSubsidy(rows: AltRow[], currentYear: number): number {
+  if (!rows.length) return 0;
+  const sorted = [...rows].sort((a, b) => a.ym.localeCompare(b.ym));
+  const firstYear = parseInt(sorted[0].ym.slice(0, 4), 10);
+  let total = 0;
+  for (let jy = firstYear + 1; jy <= currentYear; jy++) {
+    const janYm = `${jy}-01`;
+    let tier = sorted[0].tier;
+    for (const e of sorted) { if (e.ym <= janYm) tier = e.tier; else break; }
+    total += ALT_TIERS[tier]?.amount ?? 0;
+  }
+  return total;
+}
 
 export function DetailPanel({ person, unitName, canEdit, onTool, onToast, onDelete, onSaved }: {
   person: Person;
@@ -147,11 +183,12 @@ export function DetailPanel({ person, unitName, canEdit, onTool, onToast, onDele
         setSavedAt(null);
       }
     } catch { /* ignore */ }
-    /* 详细资料载入 */
+    /* 详细资料载入（需求6：海拔默认第一条为参工年月） */
     try {
-      setAltRows(JSON.parse(localStorage.getItem(`gw_alt_${person.id}`) ?? "[]"));
+      const savedAlt = JSON.parse(localStorage.getItem(`gw_alt_${person.id}`) ?? "null");
+      setAltRows(Array.isArray(savedAlt) && savedAlt.length ? savedAlt : [{ ym: joinToYm(person.join), tier: 0 }]);
       setAssessRows(JSON.parse(localStorage.getItem(`gw_assess_${person.id}`) ?? "[]"));
-    } catch { setAltRows([]); setAssessRows([]); }
+    } catch { setAltRows([{ ym: joinToYm(person.join), tier: 0 }]); setAssessRows([]); }
     setMode("base");
     setSortDir("asc"); setReasonFilter(null); setHlReason(null); setFilterOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -242,6 +279,9 @@ export function DetailPanel({ person, unitName, canEdit, onTool, onToast, onDele
   const setAlt = (rows: AltRow[]) => { setAltRows(rows); try { localStorage.setItem(`gw_alt_${person.id}`, JSON.stringify(rows)); } catch { /* ignore */ } };
   const setAssess = (rows: AssessRow[]) => { setAssessRows(rows); try { localStorage.setItem(`gw_assess_${person.id}`, JSON.stringify(rows)); } catch { /* ignore */ } };
 
+  /* 需求6：海拔折算工龄补贴 */
+  const altitudeSubsidy = useMemo(() => calcAltitudeSubsidy(altRows, new Date().getFullYear()), [altRows]);
+
   const sel = "field w-full h-8 px-2 text-[12px]";
   const pre = params.type === "pre2006";
 
@@ -256,22 +296,27 @@ export function DetailPanel({ person, unitName, canEdit, onTool, onToast, onDele
           {altRows.map((row, idx) => (
             <div key={idx} className="flex items-center gap-2">
               <span className="w-6 h-6 shrink-0 rounded-full hero-grad flex items-center justify-center text-[11px] font-bold text-white" style={{ animation: "none" }}>{idx + 1}</span>
-              <select className="field h-8 w-[92px] shrink-0 px-2 text-[12px] font-mono2" value={row.year} disabled={!canEdit}
-                onChange={(e) => setAlt(altRows.map((r, i) => i === idx ? { ...r, year: Number(e.target.value) } : r))}>
-                {years(1950, 2035).map((y) => <option key={y} value={y}>{y}年</option>)}
+              <input type="month" className="field h-8 w-[124px] shrink-0 px-2 text-[12px] font-mono2" value={row.ym} disabled={!canEdit}
+                onChange={(e) => setAlt(altRows.map((r, i) => i === idx ? { ...r, ym: e.target.value || r.ym } : r))} />
+              <select className="field h-8 flex-1 min-w-0 px-2 text-[12px]" value={row.tier} disabled={!canEdit}
+                onChange={(e) => setAlt(altRows.map((r, i) => i === idx ? { ...r, tier: Number(e.target.value) } : r))}>
+                {ALT_TIERS.map((t, i) => <option key={t.label} value={i}>{t.label}（{t.amount}元/年）</option>)}
               </select>
-              <input className="field h-8 flex-1 min-w-0 px-2 text-[12px] font-mono2" value={row.value} placeholder="海拔（米）" disabled={!canEdit}
-                onChange={(e) => setAlt(altRows.map((r, i) => i === idx ? { ...r, value: e.target.value } : r))} />
               <button title="删除此行" disabled={!canEdit}
                 onClick={() => setAlt(altRows.filter((_, i) => i !== idx))}
                 className="shrink-0 h-7 px-2 rounded-md border border-[rgba(255,69,58,.5)] text-[#d70015] dark:text-[#ff8b84] text-[11px] hover:bg-[rgba(255,69,58,.1)] transition active:scale-95 disabled:opacity-35">删除</button>
             </div>
           ))}
           <button disabled={!canEdit}
-            onClick={() => setAlt([...altRows, { year: new Date().getFullYear(), value: "" }])}
+            onClick={() => setAlt([...altRows, { ym: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`, tier: 0 }])}
             className="h-8 rounded-md border border-dashed border-[rgba(10,132,255,.5)] text-[var(--acc)] text-[12px] hover:bg-[var(--sel)] transition active:scale-[.99] flex items-center justify-center gap-1 disabled:opacity-35">
             <Icon name="plus" size={12} />新增海拔变动
           </button>
+          {/* 需求6：折算工龄补贴实时结果 */}
+          <div className="mt-1 pt-2 border-t border-dashed border-[var(--line)] flex items-center justify-between text-[11.5px]">
+            <span className="text-[var(--tx-2)]">折算工龄补贴（累计至{new Date().getFullYear()}年）</span>
+            <span className="font-mono2 font-bold text-[var(--acc)]">{fmt(altitudeSubsidy)}元</span>
+          </div>
         </div>
       </div>
 
@@ -318,6 +363,16 @@ export function DetailPanel({ person, unitName, canEdit, onTool, onToast, onDele
 
   return (
     <div className="anim-panel flex-1 min-h-0 flex flex-col gap-3">
+      {/* 需求3：页签上移到人员信息工具栏之前 */}
+      <div className="shrink-0 seg w-fit">
+        <button className={`seg-item ${mode === "base" ? "active" : ""}`} onClick={() => setMode("base")}>
+          <Icon name="user" size={12} />基本信息
+        </button>
+        <button className={`seg-item ${mode === "detail" ? "active" : ""}`} onClick={() => setMode("detail")}>
+          <Icon name="grid" size={12} />详细资料
+        </button>
+      </div>
+
       {/* ================= 工具栏 ================= */}
       <div className="shrink-0 flex items-center gap-2.5 flex-wrap">
         <div className="flex items-center gap-2.5 min-w-0">
@@ -349,16 +404,6 @@ export function DetailPanel({ person, unitName, canEdit, onTool, onToast, onDele
             <Icon name="trash" size={13} />删除选择
           </button>
         </div>
-      </div>
-
-      {/* 需求6：页签切换 基本信息 | 详细资料 */}
-      <div className="shrink-0 seg w-fit">
-        <button className={`seg-item ${mode === "base" ? "active" : ""}`} onClick={() => setMode("base")}>
-          <Icon name="user" size={12} />基本信息
-        </button>
-        <button className={`seg-item ${mode === "detail" ? "active" : ""}`} onClick={() => setMode("detail")}>
-          <Icon name="grid" size={12} />详细资料
-        </button>
       </div>
 
       {mode === "detail" ? detailView : (
@@ -483,7 +528,7 @@ export function DetailPanel({ person, unitName, canEdit, onTool, onToast, onDele
                     <button disabled={!canEdit}
                       onClick={() => setParams((p) => {
                         const l = p.positionChanges[p.positionChanges.length - 1];
-                        return { ...p, positionChanges: [...p.positionChanges, { year: (l?.year ?? 2006) + 3, dutyIndex: POLICY_CONFIG.getNextDuty(l?.dutyIndex ?? 1), reason: "职务晋升" }] };
+                        return { ...p, positionChanges: [...p.positionChanges, { year: (l?.year ?? 2008) + 2, dutyIndex: nextDutyAfter(l?.dutyIndex ?? 1), reason: "职务晋升" }] };
                       })}
                       className="h-8 rounded-md border border-dashed border-[rgba(10,132,255,.5)] text-[var(--acc)] text-[12px] hover:bg-[var(--sel)] transition active:scale-[.99] flex items-center justify-center gap-1 disabled:opacity-35">
                       <Icon name="plus" size={12} />新增职务变化
@@ -632,7 +677,7 @@ export function DetailPanel({ person, unitName, canEdit, onTool, onToast, onDele
           </div>
 
           {/* -------- 右列：当前工资 -------- */}
-          <SalaryPanel personId={person.id} results={results} latestDutyIndex={latestDutyIndex} canEdit={canEdit} onToast={onToast} />
+          <SalaryPanel personId={person.id} results={results} latestDutyIndex={latestDutyIndex} canEdit={canEdit} onToast={onToast} altitudeSubsidy={altitudeSubsidy} />
         </div>
       )}
 
