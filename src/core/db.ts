@@ -59,7 +59,8 @@ async function idbSet(buf: Uint8Array): Promise<void> {
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS units (
   id   TEXT PRIMARY KEY,
-  name TEXT NOT NULL
+  name TEXT NOT NULL,
+  zone TEXT NOT NULL DEFAULT '二类区'
 );
 CREATE TABLE IF NOT EXISTS persons (
   id      INTEGER PRIMARY KEY,
@@ -80,6 +81,8 @@ export async function initDb(): Promise<void> {
   const saved = await idbGet().catch(() => null);
   db = saved ? new SQL.Database(saved) : new SQL.Database();
   db.run(SCHEMA);
+  /* 兼容旧库：若 units 表无 zone 列则补充 */
+  try { db.run("ALTER TABLE units ADD COLUMN zone TEXT NOT NULL DEFAULT '二类区'"); } catch { /* 列已存在 */ }
 
   /* 空库播种：首次运行写入演示台账 */
   const res = db.exec("SELECT COUNT(*) AS c FROM persons");
@@ -121,13 +124,16 @@ export function bindPersistors(p: () => void, u: () => void): void {
 /* ---------------- 单位 ---------------- */
 
 export function listUnits(): Unit[] {
-  const res = db.exec("SELECT id, name FROM units ORDER BY id");
+  const res = db.exec("SELECT id, name, zone FROM units ORDER BY id");
   if (!res.length) return [];
-  return res[0].values.map((r: unknown[]) => ({ id: String(r[0]), name: String(r[1]) }));
+  return res[0].values.map((r: unknown[]) => ({
+    id: String(r[0]), name: String(r[1]),
+    zone: (["二类区", "三类区", "四类区"].includes(String(r[2])) ? String(r[2]) : "二类区") as Unit["zone"],
+  }));
 }
 
 export function upsertUnit(u: Unit): void {
-  db.run("INSERT OR REPLACE INTO units (id, name) VALUES (?, ?)", [u.id, u.name]);
+  db.run("INSERT OR REPLACE INTO units (id, name, zone) VALUES (?, ?, ?)", [u.id, u.name, u.zone ?? "二类区"]);
 }
 
 export function removeUnitRow(id: string): void {

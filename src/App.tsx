@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Employ, INITIAL_UNITS, PEOPLE, Person, Unit } from "./data";
+import { Employ, INITIAL_UNITS, PEOPLE, Person, Unit, WageZone } from "./data";
 import { MenuRail, MenuKey, StatusBar, Theme, TitleBar, Toast, ToastStack, UserStrip } from "./components/chrome";
 import { ChatWidget } from "./components/ChatWidget";
 import { PersonList } from "./components/PersonList";
@@ -263,17 +263,17 @@ export default function App() {
     setModal("del");
   };
 
-  /* ---------- 单位 ---------- */
-  const addUnit = (id: string, name: string) => {
+  /* ---------- 单位（含工资类区） ---------- */
+  const addUnit = (id: string, name: string, zone: WageZone = "二类区") => {
     if (!id || !name.trim()) { pushToast("error", "单位编号与名称不能为空"); return; }
     if (units.some((u) => u.id === id)) { pushToast("error", `单位编号 [${id}] 已存在`); return; }
-    setUnits((arr) => [...arr, { id, name: name.trim() }]);
-    pushToast("success", `已新增单位 [${id}] ${name.trim()}`);
+    setUnits((arr) => [...arr, { id, name: name.trim(), zone }]);
+    pushToast("success", `已新增单位 [${id}] ${name.trim()}（${zone}）`);
   };
-  const editUnit = (id: string, name: string) => {
+  const editUnit = (id: string, name: string, zone: WageZone) => {
     if (!name.trim()) { pushToast("error", "单位名称不能为空"); return; }
-    setUnits((arr) => arr.map((u) => (u.id === id ? { ...u, name: name.trim() } : u)));
-    pushToast("success", `单位 [${id}] 已更新为「${name.trim()}」`);
+    setUnits((arr) => arr.map((u) => (u.id === id ? { ...u, name: name.trim(), zone } : u)));
+    pushToast("success", `单位 [${id}] 已更新为「${name.trim()}（${zone}）」`);
   };
   const removeUnit = (id: string) => {
     const cnt = persons.filter((p) => p.unitId === id).length;
@@ -466,7 +466,7 @@ export default function App() {
         <ConfirmDeleteModal person={selected} onCancel={() => setModal(null)} onConfirm={confirmDelete} />
       )}
       {modal === "catalog" && (
-        <CatalogModal units={units} persons={persons} onClose={() => setModal(null)} />
+        <CatalogModal onClose={() => setModal(null)} />
       )}
       {modal === "calc" && <CalcModal onClose={() => setModal(null)} />}
       {modal === "register" && (

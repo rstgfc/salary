@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { EMPLOY_META, Employ, Person, TAG_META, Unit, makePerson, yearOf, fmt, fmtLevel } from "../data";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { EMPLOY_META, Employ, Person, TAG_META, Unit, WAGE_ZONES, WageZone, makePerson, yearOf, fmt, fmtLevel } from "../data";
 import { VerifyReport, CalcRunResult, Calculator } from "../core/calculator";
 import { Icon, IconName, Logo } from "./icons";
 
@@ -8,18 +8,37 @@ export function Modal({ title, icon, onClose, children, footer, w = 580 }: {
   title: string; icon: IconName; onClose: () => void;
   children: React.ReactNode; footer?: React.ReactNode; w?: number;
 }) {
+  /* 弹窗可拖动：按住标题栏移动整个窗口 */
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+
+  const onHeadDown = (e: React.PointerEvent) => {
+    dragRef.current = { startX: e.clientX, startY: e.clientY, origX: offset.x, origY: offset.y };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const onHeadMove = (e: React.PointerEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    setOffset({ x: d.origX + (e.clientX - d.startX), y: d.origY + (e.clientY - d.startY) });
+  };
+  const onHeadUp = () => { dragRef.current = null; };
+
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center anim-fade" onMouseDown={onClose}>
       <div className="absolute inset-0 bg-[rgba(15,23,42,.45)] dark:bg-[rgba(8,10,14,.62)] backdrop-blur-[3px]" />
       <div
         onMouseDown={(e) => e.stopPropagation()}
         className="anim-modal relative rounded-xl border border-[var(--line)] bg-[var(--bg-2)] shadow-[0_28px_80px_rgba(15,30,60,.35)] flex flex-col max-h-[86vh]"
-        style={{ width: w, maxWidth: "94vw" }}
+        style={{ width: w, maxWidth: "94vw", transform: `translate(${offset.x}px, ${offset.y}px)` }}
       >
-        <div className="h-11 shrink-0 flex items-center gap-2.5 px-4 border-b border-[var(--line)] card-head rounded-t-xl">
+        <div
+          onPointerDown={onHeadDown} onPointerMove={onHeadMove} onPointerUp={onHeadUp}
+          className="h-11 shrink-0 flex items-center gap-2.5 px-4 border-b border-[var(--line)] card-head rounded-t-xl cursor-move touch-none select-none"
+          title="拖动移动窗口"
+        >
           <Icon name={icon} size={15} className="text-[var(--acc)]" />
           <span className="text-[13.5px] font-semibold text-[var(--tx-1)]">{title}</span>
-          <button onClick={onClose} className="ml-auto w-6 h-6 rounded-md flex items-center justify-center text-[var(--tx-3)] hover:text-[var(--tx-1)] hover:bg-[var(--hov)] transition">
+          <button onClick={onClose} onPointerDown={(e) => e.stopPropagation()} className="ml-auto w-6 h-6 rounded-md flex items-center justify-center text-[var(--tx-3)] hover:text-[var(--tx-1)] hover:bg-[var(--hov)] transition">
             <Icon name="close" size={13} />
           </button>
         </div>
@@ -140,19 +159,21 @@ export function QueryModal({ persons, units, onClose, onLocate }: {
 /* ================= 增加单位（需求1） ================= */
 export function UnitModal({ units, persons, canEdit, onClose, onAdd, onRemove, onEdit }: {
   units: Unit[]; persons: Person[]; canEdit: boolean; onClose: () => void;
-  onAdd: (id: string, name: string) => void; onRemove: (id: string) => void;
-  onEdit: (id: string, name: string) => void;
+  onAdd: (id: string, name: string, zone: WageZone) => void; onRemove: (id: string) => void;
+  onEdit: (id: string, name: string, zone: WageZone) => void;
 }) {
   const next = String(Math.max(0, ...units.map((u) => parseInt(u.id, 10))) + 1).padStart(4, "0");
   const [id, setId] = useState(next);
   const [name, setName] = useState("");
+  const [zone, setZone] = useState<WageZone>("二类区");
   const [editId, setEditId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+  const [editZone, setEditZone] = useState<WageZone>("二类区");
 
   return (
     <Modal title="单位管理" icon="unit" onClose={onClose} w={520}
-      footer={<><Btn onClick={onClose}>关闭</Btn><Btn kind="primary" disabled={!canEdit} onClick={() => { onAdd(id, name); setId(String(Math.max(0, ...units.map((u) => parseInt(u.id, 10)), parseInt(id || "0", 10)) + 1).padStart(4, "0")); setName(""); }}>确认增加</Btn></>}>
-      <div className="grid grid-cols-2 gap-2.5">
+      footer={<><Btn onClick={onClose}>关闭</Btn><Btn kind="primary" disabled={!canEdit} onClick={() => { onAdd(id, name, zone); setId(String(Math.max(0, ...units.map((u) => parseInt(u.id, 10)), parseInt(id || "0", 10)) + 1).padStart(4, "0")); setName(""); setZone("二类区"); }}>确认增加</Btn></>}>
+      <div className="grid grid-cols-3 gap-2.5">
         <label className="text-[11px] text-[var(--tx-2)]">
           单位编号
           <input value={id} onChange={(e) => setId(e.target.value.replace(/\D/g, "").slice(0, 4))}
@@ -162,6 +183,13 @@ export function UnitModal({ units, persons, canEdit, onClose, onAdd, onRemove, o
           单位名称
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="如：测试单位2"
             className="field mt-1 w-full h-8 px-2.5 text-[12.5px]" />
+        </label>
+        <label className="text-[11px] text-[var(--tx-2)]">
+          工资类区
+          <select value={zone} onChange={(e) => setZone(e.target.value as WageZone)}
+            className="field mt-1 w-full h-8 px-2 text-[12.5px]">
+            {WAGE_ZONES.map((z) => <option key={z} value={z}>{z}</option>)}
+          </select>
         </label>
       </div>
 
@@ -176,8 +204,12 @@ export function UnitModal({ units, persons, canEdit, onClose, onAdd, onRemove, o
               {editId === u.id ? (
                 <>
                   <input autoFocus value={editName} onChange={(e) => setEditName(e.target.value)}
-                    className="field h-7 flex-1 px-2 text-[12.5px]" />
-                  <button onClick={() => { onEdit(u.id, editName); setEditId(null); }} title="保存"
+                    className="field h-7 flex-1 min-w-0 px-2 text-[12.5px]" />
+                  <select value={editZone} onChange={(e) => setEditZone(e.target.value as WageZone)}
+                    className="field h-7 w-[84px] px-1.5 text-[12px]">
+                    {WAGE_ZONES.map((z) => <option key={z} value={z}>{z}</option>)}
+                  </select>
+                  <button onClick={() => { onEdit(u.id, editName, editZone); setEditId(null); }} title="保存"
                     className="w-6 h-6 rounded-md flex items-center justify-center text-[#1f8f4d] dark:text-[#7ede99] hover:bg-[rgba(48,209,88,.12)] transition">
                     <Icon name="check" size={12} />
                   </button>
@@ -188,9 +220,10 @@ export function UnitModal({ units, persons, canEdit, onClose, onAdd, onRemove, o
                 </>
               ) : (
                 <>
-                  <span className="text-[12.5px] text-[var(--tx-1)]">{u.name}</span>
-                  <span className="ml-auto font-mono2 text-[10.5px] text-[var(--tx-3)]">{cnt} 人</span>
-                  <button onClick={() => { setEditId(u.id); setEditName(u.name); }} title="修改单位" disabled={!canEdit}
+                  <span className="text-[12.5px] text-[var(--tx-1)] truncate">{u.name}</span>
+                  <span className="shrink-0 text-[10px] px-1.5 py-px rounded border border-[rgba(10,132,255,.4)] bg-[var(--sel)] text-[var(--acc)]">{u.zone}</span>
+                  <span className="ml-auto shrink-0 font-mono2 text-[10.5px] text-[var(--tx-3)]">{cnt} 人</span>
+                  <button onClick={() => { setEditId(u.id); setEditName(u.name); setEditZone(u.zone); }} title="修改单位" disabled={!canEdit}
                     className="w-6 h-6 rounded-md flex items-center justify-center text-[var(--tx-3)] hover:text-[var(--acc)] hover:bg-[var(--sel)] transition disabled:opacity-35">
                     <Icon name="eye" size={12} />
                   </button>
@@ -470,7 +503,7 @@ const HELP_MENUS: [IconName, string, string][] = [
   ["recalc", "全部重算", "以 calculator.js 核心对全体人员重新核验三方案套改结果"],
   ["rolling", "滚动判断", "判断当前人员是否满足 5 年滚动晋级"],
   ["trash", "删除选择", "删除当前选中人员及其演变台账"],
-  ["catalog", "目录数据", "查阅工资标准表 / 套改对照表 / 职务层次表"],
+  ["catalog", "工资标准", "查阅 2014 年后职务 / 级别工资标准表与职务层次表"],
   ["calc", "计算器", "标准计算与增资测算辅助工具"],
 ];
 

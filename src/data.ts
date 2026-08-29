@@ -49,11 +49,15 @@ export interface Person {
   history: SalaryRecord[];
 }
 
-export interface Unit { id: string; name: string; }
+/* ---------------- 工资类区 ---------------- */
+export type WageZone = "二类区" | "三类区" | "四类区";
+export const WAGE_ZONES: WageZone[] = ["二类区", "三类区", "四类区"];
+
+export interface Unit { id: string; name: string; zone: WageZone; }
 
 /* ---------------- 单位 ---------------- */
 
-export const INITIAL_UNITS: Unit[] = [{ id: "0001", name: "测试单位1" }];
+export const INITIAL_UNITS: Unit[] = [{ id: "0001", name: "测试单位1", zone: "二类区" }];
 
 /* ---------------- 状态标签配色 ---------------- */
 

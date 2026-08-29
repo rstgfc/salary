@@ -104,7 +104,7 @@ const MENUS: { key: MenuKey; label: string; icon: IconName; danger?: boolean }[]
   { key: "recalc", label: "全部重算", icon: "recalc" },
   { key: "rolling", label: "滚动判断", icon: "rolling" },
   { key: "del", label: "删除选择", icon: "trash" },
-  { key: "catalog", label: "目录数据", icon: "catalog" },
+  { key: "catalog", label: "工资标准", icon: "catalog" },
   { key: "calc", label: "计算器", icon: "calc" },
   { key: "register", label: "注册", icon: "key" },
   { key: "help", label: "帮助", icon: "help" },

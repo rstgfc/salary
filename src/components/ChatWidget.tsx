@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "./icons";
 
 /* ========================================================================== */
@@ -8,8 +8,9 @@ import { Icon } from "./icons";
 
 interface Msg {
   id: string;
-  user: string;        // 账号名
-  userName: string;    // 显示名
+  user: string;        // 发送方账号
+  userName: string;    // 发送方显示名
+  to?: string;         // 接收方（undefined = 聊天室群聊；否则为对方 id 的私聊）
   text?: string;
   fileName?: string;
   fileSize?: number;
@@ -66,10 +67,16 @@ const vh = () => (typeof window !== "undefined" ? window.innerHeight : 800);
 const clamp01 = (n: number) => Math.min(Math.max(n, 0.02), 0.98);
 const ICON_SIZE = 52;
 
-export function ChatWidget({ user, userName, onToast }: {
+export function ChatWidget({ user, userName, persons, onToast }: {
   user: string; userName: string;
+  persons: { id: number; name: string; employ: string }[];
   onToast: (t: "success" | "error" | "info", m: string) => void;
 }) {
+  /* 窗口形态：float = 浮动窗口；dock = 右侧折叠窗（从右往左展开） */
+  const [formMode, setFormMode] = useState<"float" | "dock">(() => load<"float" | "dock">("gw_chat_form", "float"));
+  const [dockOpen, setDockOpen] = useState(true);
+  /* 当前会话对象：null = 聊天室（群聊）；否则为用户 id（私聊） */
+  const [activeUser, setActiveUser] = useState<string | null>(null);
   /* 图标位置以「相对窗口的比例」存储，窗口缩放后仍保持相对位置、不会消失 */
   const [iconRatio, setIconRatio] = useState<{ rx: number; ry: number }>(() => {
     const d = load<{ rx?: number; ry?: number; x?: number; y?: number } | null>(POS_KEY, null);
@@ -99,6 +106,28 @@ export function ChatWidget({ user, userName, onToast }: {
   const listRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const shareInputRef = useRef<HTMLInputElement>(null);
+
+  /* ---------- 用户花名册（左侧标签页，需求3） ---------- */
+  const contacts = useMemo(
+    () =>
+      persons.map((p) => ({
+        id: `p${p.id}`,
+        name: p.name,
+        initial: p.name.slice(0, 1),
+        online: p.employ === "在职",
+      })),
+    [persons]
+  );
+
+  /* 当前会话可见消息：群聊 = 无 to 的消息；私聊 = 双方互发 */
+  const visibleMsgs = useMemo(() => {
+    if (activeUser === null) return msgs.filter((m) => !m.to);
+    return msgs.filter(
+      (m) => (m.to === activeUser && m.user === user) || (m.to === user && m.user === activeUser)
+    );
+  }, [msgs, activeUser, user]);
+
+  const activeName = activeUser === null ? "聊天室" : contacts.find((c) => c.id === activeUser)?.name ?? "私聊";
 
   /* ---------- 刷新消息/文件（跨账号、跨标签页） ---------- */
   const reload = useCallback(() => {
@@ -140,11 +169,12 @@ export function ChatWidget({ user, userName, onToast }: {
     if (d && !d.moved) setOpen((v) => !v); // 视为点击
   };
 
-  /* ---------- 发送 ---------- */
+  /* ---------- 发送（群聊 to=undefined，私聊 to=对方id） ---------- */
   const doSend = () => {
     const text = draft.trim();
     if (!text && !pendingFile) return;
     const m: Msg = { id: uid(), user, userName, time: Date.now() };
+    if (activeUser !== null) m.to = activeUser;
     if (text) m.text = text;
     if (pendingFile) { m.fileName = pendingFile.name; m.fileSize = pendingFile.size; m.fileData = pendingFile.dataUrl; }
     const next = [...msgs, m];
@@ -223,6 +253,173 @@ export function ChatWidget({ user, userName, onToast }: {
   };
 
   const myMsgs = (m: Msg) => m.user === user;
+
+  /* ============ 共享聊天主体（浮动窗 / 折叠窗共用，需求1/2/3） ============ */
+  const chatBody = (
+    <>
+      {/* 标签页：聊天室 | 共享空间（需求2：对话→聊天室） */}
+      <div className="shrink-0 seg w-full m-2" style={{ marginBottom: 0 }}>
+        <button className={`seg-item flex-1 justify-center ${tab === "chat" ? "active" : ""}`} onClick={() => setTab("chat")}>
+          <Icon name="chat" size={12} />聊天室
+        </button>
+        <button className={`seg-item flex-1 justify-center ${tab === "files" ? "active" : ""}`} onClick={() => setTab("files")}>
+          <Icon name="folder" size={12} />共享空间
+        </button>
+      </div>
+
+      {tab === "chat" ? (
+        <div className="flex flex-1 min-h-0">
+          {/* 左侧用户栏（需求3） */}
+          <div className="w-[64px] shrink-0 border-r border-[var(--line)] bg-[var(--bg-1)] overflow-y-auto flex flex-col items-center gap-1.5 py-2">
+            {/* 聊天室（群聊）入口 */}
+            <button
+              onClick={() => setActiveUser(null)}
+              title="聊天室（群聊）"
+              className={`w-[54px] flex flex-col items-center gap-0.5 rounded-lg py-1.5 transition ${activeUser === null ? "bg-[var(--sel)] ring-1 ring-[var(--acc)]" : "hover:bg-[var(--hov)]"}`}
+            >
+              <span className="w-8 h-8 rounded-full flex items-center justify-center text-white" style={{ background: "linear-gradient(135deg,#0a84ff,#5ac8fa)" }}>
+                <Icon name="chat" size={15} />
+              </span>
+              <span className="text-[9.5px] text-[var(--tx-2)] leading-none">聊天室</span>
+            </button>
+            <span className="w-8 h-px bg-[var(--line)] my-0.5" />
+            {/* 用户列表：首字头像，不在线灰色，点击私聊 */}
+            {contacts.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => setActiveUser(c.id)}
+                title={`${c.name}（${c.online ? "在线" : "离线"}）· 点击私聊`}
+                className={`w-[54px] flex flex-col items-center gap-0.5 rounded-lg py-1.5 transition ${activeUser === c.id ? "bg-[var(--sel)] ring-1 ring-[var(--acc)]" : "hover:bg-[var(--hov)]"}`}
+              >
+                <span
+                  className={`relative w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-bold text-white ${c.online ? "" : "grayscale opacity-60"}`}
+                  style={{ background: c.online ? "linear-gradient(135deg,#34c759,#30d158)" : "#9aa3b2" }}
+                >
+                  {c.initial}
+                  <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[var(--bg-1)] ${c.online ? "bg-[#30d158]" : "bg-[#9aa3b2]"}`} />
+                </span>
+                <span className="text-[9.5px] text-[var(--tx-2)] leading-none max-w-[50px] truncate">{c.name}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* 右侧消息区 */}
+          <div className="flex-1 min-w-0 flex flex-col">
+            {/* 会话标题 */}
+            <div className="shrink-0 flex items-center gap-1.5 px-3 h-8 border-b border-[var(--line)] bg-[var(--bg-1)] text-[11px] text-[var(--tx-2)]">
+              <Icon name={activeUser === null ? "chat" : "user"} size={12} className="text-[var(--acc)]" />
+              <span className="font-medium text-[var(--tx-1)]">{activeName}</span>
+              {activeUser !== null && (
+                <span className={`text-[9.5px] px-1.5 py-px rounded-full border ${contacts.find((c) => c.id === activeUser)?.online ? "border-[rgba(48,209,88,.45)] text-[#1f8f4d] dark:text-[#7ede99] bg-[rgba(48,209,88,.08)]" : "border-[var(--line)] text-[var(--tx-3)]"}`}>
+                  {contacts.find((c) => c.id === activeUser)?.online ? "在线" : "离线"}
+                </span>
+              )}
+            </div>
+
+            {/* 消息列表 */}
+            <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto px-3 py-2.5 flex flex-col gap-2.5">
+              {visibleMsgs.length === 0 && (
+                <div className="flex-1 flex flex-col items-center justify-center text-center text-[var(--tx-3)]">
+                  <Icon name="chat" size={26} className="opacity-40 mb-2" />
+                  <p className="text-[11.5px]">{activeUser === null ? "暂无消息，发一条打个招呼吧" : `向 ${activeName} 发送第一条消息吧`}</p>
+                </div>
+              )}
+              {visibleMsgs.map((m) => (
+                <div key={m.id} className={`flex flex-col ${myMsgs(m) ? "items-end" : "items-start"}`}>
+                  <span className="text-[10px] text-[var(--tx-3)] mb-0.5 px-0.5">
+                    {myMsgs(m) ? "我" : m.userName} · {fmtTime(m.time)}
+                  </span>
+                  <div
+                    className="max-w-[82%] rounded-lg px-2.5 py-1.5 text-[12px] leading-relaxed break-words"
+                    style={myMsgs(m)
+                      ? { background: "linear-gradient(120deg,#0a84ff,#199bf0)", color: "#fff", borderBottomRightRadius: 3 }
+                      : { background: "var(--bg-3)", color: "var(--tx-1)", border: "1px solid var(--line)", borderBottomLeftRadius: 3 }}
+                  >
+                    {m.text}
+                    {m.fileName && (
+                      <a
+                        href={m.fileData} download={m.fileName}
+                        className={`mt-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] transition ${myMsgs(m) ? "bg-white/15 hover:bg-white/25 text-white" : "bg-[var(--bg-2)] hover:bg-[var(--hov)] text-[var(--acc)] border border-[var(--line)]"}`}
+                      >
+                        <Icon name="clip" size={13} />
+                        <span className="truncate max-w-[150px]">{m.fileName}</span>
+                        <span className="opacity-70 shrink-0">{fmtSize(m.fileSize ?? 0)}</span>
+                        <Icon name="download" size={12} className="shrink-0" />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* 待发文件预览 */}
+            {pendingFile && (
+              <div className="shrink-0 mx-3 mb-1.5 flex items-center gap-2 rounded-md border border-dashed border-[rgba(10,132,255,.5)] bg-[var(--sel)] px-2.5 py-1.5">
+                <Icon name="clip" size={13} className="text-[var(--acc)]" />
+                <span className="text-[11px] text-[var(--tx-1)] truncate flex-1">{pendingFile.name}</span>
+                <span className="text-[10px] text-[var(--tx-3)]">{fmtSize(pendingFile.size)}</span>
+                <button onClick={() => setPendingFile(null)} className="text-[var(--tx-3)] hover:text-[#d70015] transition"><Icon name="close" size={12} /></button>
+              </div>
+            )}
+
+            {/* 输入区 */}
+            <div className="shrink-0 flex items-center gap-1.5 px-3 py-2.5 border-t border-[var(--line)] bg-[var(--bg-1)]">
+              <input ref={fileInputRef} type="file" className="hidden" onChange={(e) => pickFile(e, false)} />
+              <button onClick={() => fileInputRef.current?.click()} title="发送文件"
+                className="w-8 h-8 rounded-md flex items-center justify-center text-[var(--tx-2)] hover:text-[var(--acc)] hover:bg-[var(--hov)] transition">
+                <Icon name="clip" size={16} />
+              </button>
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") doSend(); }}
+                placeholder={activeUser === null ? "输入消息，回车发送" : `发消息给 ${activeName}…`}
+                className="flex-1 h-8 px-2.5 rounded-md text-[12px] outline-none"
+                style={{ background: "var(--bg-2)", border: "1px solid var(--line)", color: "var(--tx-1)" }}
+              />
+              <button onClick={doSend} title="发送"
+                className="w-8 h-8 rounded-md flex items-center justify-center text-white transition active:scale-95"
+                style={{ background: "linear-gradient(120deg,#0a84ff,#199bf0)" }}>
+                <Icon name="send" size={15} />
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* 共享空间 */
+        <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2.5 flex flex-col gap-2">
+          <input ref={shareInputRef} type="file" className="hidden" onChange={(e) => pickFile(e, true)} />
+          <button onClick={() => shareInputRef.current?.click()}
+            className="shrink-0 h-9 rounded-lg flex items-center justify-center gap-1.5 text-[12.5px] font-medium text-white transition active:scale-[.98]"
+            style={{ background: "linear-gradient(120deg,#0a84ff,#199bf0)" }}>
+            <Icon name="download" size={14} className="rotate-180" />上传文件到共享空间
+          </button>
+          <p className="text-[10px] text-[var(--tx-3)]">所有账号上传的文件在此汇聚，任何账号均可下载。</p>
+          {files.length === 0 && (
+            <div className="flex-1 flex flex-col items-center justify-center text-center text-[var(--tx-3)]">
+              <Icon name="folder" size={26} className="opacity-40 mb-2" />
+              <p className="text-[11.5px]">共享空间还是空的</p>
+            </div>
+          )}
+          {files.map((f) => (
+            <div key={f.id} className="flex items-center gap-2.5 rounded-lg border border-[var(--line)] bg-[var(--bg-1)] px-2.5 py-2">
+              <span className="w-8 h-8 rounded-md flex items-center justify-center shrink-0" style={{ background: "var(--sel)" }}>
+                <Icon name="clip" size={15} className="text-[var(--acc)]" />
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[12px] text-[var(--tx-1)] truncate">{f.name}</p>
+                <p className="text-[10px] text-[var(--tx-3)]">{f.ownerName} · {fmtSize(f.size)} · {fmtTime(f.time)}</p>
+              </div>
+              <a href={f.dataUrl} download={f.name} title="下载"
+                className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--acc)] hover:bg-[var(--sel)] transition shrink-0">
+                <Icon name="download" size={15} />
+              </a>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
 
   return (
     <>

@@ -3,8 +3,8 @@ import {
   AllowanceItem, Person, Unit, defaultAllowances, fmt, lastOf,
 } from "../data";
 import { Icon } from "./icons";
-import { DUTY_WAGE_2006, POLICY_CONFIG, dutyWage2006 } from "../core/calculator";
-import { LOWER_POSITION } from "../core/salarydata";
+import { POLICY_CONFIG } from "../core/calculator";
+import { LEVEL_SALARY, LOWER_POSITION, POSITIONS, POSITION_SALARY } from "../core/salarydata";
 import { POSITION_LEVELS } from "../data";
 import { Btn, Modal } from "./modals";
 
@@ -171,24 +171,23 @@ export function AllowanceModal({ person, unitName, onClose, onToast }: {
 }
 
 /* ================= 目录数据 ================= */
-type CatalogTab = "unit" | "duty" | "rank06" | "position";
+type CatalogTab = "duty" | "rank" | "position";
 
 const TH = "tbl-head px-2.5 py-1.5 text-left";
 const TH_R = "tbl-head px-2 py-1.5 text-right";
 
-export function CatalogModal({ units, persons, onClose }: {
-  units: Unit[]; persons: Person[]; onClose: () => void;
-}) {
-  const [tab, setTab] = useState<CatalogTab>("rank06");
+export function CatalogModal({ onClose }: { onClose: () => void }) {
+  const [tab, setTab] = useState<CatalogTab>("duty");
   const tabs: [CatalogTab, string][] = [
-    ["unit", "单位目录"], ["duty", "职务工资表(2006)"], ["rank06", "级别工资表(2006)"], ["position", "职务层次表"],
+    ["duty", "职务工资标准表"], ["rank", "级别工资标准表"], ["position", "职务层次表"],
   ];
 
-  const maxGrades06 = 14;
+  /* 级别工资标准表最大档数（取所有级别中最长的） */
+  const maxGrades = Math.max(...Object.values(LEVEL_SALARY).map((a) => a.length));
 
   return (
-    <Modal title="目录数据" icon="catalog" onClose={onClose} w={720}
-      footer={<><span className="mr-auto text-[11px] text-[var(--tx-3)]">依据：国办发〔2006〕22号 · 国办发〔2015〕3号 · 仅供测算参考</span><Btn kind="primary" onClick={onClose}>关闭</Btn></>}>
+    <Modal title="工资标准" icon="catalog" onClose={onClose} w={760}
+      footer={<><span className="mr-auto text-[11px] text-[var(--tx-3)]">依据：国办发〔2015〕3号 · 2014 年 10 月起执行 · 仅供测算参考</span><Btn kind="primary" onClick={onClose}>关闭</Btn></>}>
       <div className="flex items-center gap-1 border-b border-[var(--line)] overflow-x-auto">
         {tabs.map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)}
@@ -204,74 +203,56 @@ export function CatalogModal({ units, persons, onClose }: {
 
       <div className="mt-3 rounded-lg border border-[var(--line)] overflow-hidden">
         <div className="max-h-[400px] overflow-auto">
-          {/* 单位目录 */}
-          {tab === "unit" && (
-            <table className="w-full text-[12px]">
-              <thead><tr>{["单位编号", "单位名称", "人员数"].map((h) => <th key={h} className={TH}>{h}</th>)}</tr></thead>
-              <tbody>
-                {units.map((u) => (
-                  <tr key={u.id} className="border-b border-[var(--line-2)] hover:bg-[var(--hov)]">
-                    <td className="px-3 py-2 font-mono2 text-[var(--acc)]">[{u.id}]</td>
-                    <td className="px-3 py-2 text-[var(--tx-1)]">{u.name}</td>
-                    <td className="px-3 py-2 font-mono2 text-[var(--tx-2)]">{persons.filter((p) => p.unitId === u.id).length} 人</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-
-          {/* 职务工资表（2006 基准，与测算引擎同源） */}
+          {/* 职务工资标准表（2014 年后，按职务层次，领导/非领导分列） */}
           {tab === "duty" && (
             <div>
               <table className="w-full text-[12px]">
                 <thead><tr>
                   <th className={TH}>职务层次</th>
-                  <th className={TH_R}>2006 基准（元/月）</th>
-                  <th className={TH}>低一级职务</th>
+                  <th className={TH_R}>领导职务（元/月）</th>
+                  <th className={TH_R}>非领导职务（元/月）</th>
                 </tr></thead>
                 <tbody>
-                  {[10, 9, 8, 7, 6, 5, 4, 3, 2, 1].map((di, i) => (
-                    <tr key={di} className={`border-b border-[var(--line-2)] ${i % 2 === 1 ? "bg-[var(--hov)]" : ""} hover:bg-[var(--sel)]`}>
-                      <td className="px-3 py-1.5 text-[var(--tx-1)]">
-                        {POLICY_CONFIG.getLabel(di)}
-                        {di === 4 && <span className="ml-1.5 text-[10px] text-[var(--acc)]">钱广才台账锚点</span>}
-                      </td>
-                      <td className="px-2 py-1.5 text-right font-mono2 text-[var(--tx-1)]">{fmt(dutyWage2006(di))}</td>
-                      <td className="px-3 py-1.5 text-[var(--tx-2)]">{di > 1 ? POLICY_CONFIG.getLabel(di - 1) : "—"}</td>
-                    </tr>
-                  ))}
+                  {[...POSITIONS].reverse().map((pos, i) => {
+                    const s = POSITION_SALARY[pos];
+                    return (
+                      <tr key={pos} className={`border-b border-[var(--line-2)] ${i % 2 === 1 ? "bg-[var(--hov)]" : ""} hover:bg-[var(--sel)]`}>
+                        <td className="px-3 py-1.5 text-[var(--tx-1)]">{pos}</td>
+                        <td className="px-2 py-1.5 text-right font-mono2 text-[var(--tx-1)]">{s?.leader != null ? fmt(s.leader) : "—"}</td>
+                        <td className="px-2 py-1.5 text-right font-mono2 text-[var(--tx-1)]">{s?.nonLeader != null ? fmt(s.nonLeader) : "—"}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
               <p className="px-3 pt-2 pb-1.5 text-[10px] text-[var(--tx-3)] leading-relaxed">
-                2006/7–2014/9 演变行使用本表；2014/10「调整工资标准」后自动切换为国办发〔2015〕3号标准（领导/非领导分列），
-                由测算引擎在重算时自动套用，不在目录中另行展示。
+                2014 年 10 月调整后标准（国办发〔2015〕3号）。测算引擎在「调整工资标准」后自动套用本表（按领导/非领导区分）。
               </p>
             </div>
           )}
 
-          {/* 级别工资表（2006 基准，引擎运算口径 SALARY_STANDARD） */}
-          {tab === "rank06" && (
+          {/* 级别工资标准表（2014 年后） */}
+          {tab === "rank" && (
             <div>
               <table className="text-[11px] border-collapse">
                 <thead>
                   <tr>
                     <th className={`${TH} sticky left-0 z-20`}>级别</th>
-                    {Array.from({ length: maxGrades06 }, (_, g) => g + 1).map((g) => (
+                    {Array.from({ length: maxGrades }, (_, g) => g + 1).map((g) => (
                       <th key={g} className={TH_R + " font-mono2"}>{g}档</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {Array.from({ length: 27 }, (_, i) => 27 - i).map((L) => {
-                    const arr = (POLICY_CONFIG.SALARY_STANDARD[L] ?? []).slice(1);
+                    const arr = LEVEL_SALARY[L] ?? [];
                     return (
                       <tr key={L} className={L % 2 === 0 ? "bg-[var(--hov)]" : ""}>
-                        <td className={`sticky left-0 z-10 px-2.5 py-1 font-mono2 border-r border-[var(--line-2)] whitespace-nowrap ${[16, 18, 25].includes(L) ? "text-[var(--acc)] bg-[var(--head)]" : "text-[var(--acc)] bg-[var(--bg-2)]"}`}>{L}级</td>
-                        {Array.from({ length: maxGrades06 }, (_, g) => g).map((g) => {
+                        <td className="sticky left-0 z-10 px-2.5 py-1 font-mono2 border-r border-[var(--line-2)] whitespace-nowrap text-[var(--acc)] bg-[var(--bg-2)]">{L}级</td>
+                        {Array.from({ length: maxGrades }, (_, g) => g).map((g) => {
                           const v = arr[g];
-                          const hot = (L === 18 && v === 976) || (L === 19 && v === 945) || (L === 16 && v === 1213) || (L === 25 && v === 380);
                           return (
-                            <td key={g} className={`px-2 py-1 text-right font-mono2 whitespace-nowrap ${v == null ? "" : hot ? "text-[#a26603] dark:text-[#ffd669] font-bold" : "text-[var(--tx-1)]"}`}>
+                            <td key={g} className={`px-2 py-1 text-right font-mono2 whitespace-nowrap ${v == null ? "" : "text-[var(--tx-1)]"}`}>
                               {v != null ? v.toLocaleString() : ""}
                             </td>
                           );
@@ -282,8 +263,7 @@ export function CatalogModal({ units, persons, onClose }: {
                 </tbody>
               </table>
               <p className="px-3 pt-2 pb-1.5 text-[10px] text-[var(--tx-3)] leading-relaxed">
-                测算引擎运算口径（calculator.js SALARY_STANDARD）；加粗项为台账锚点：18级7档=976、19级8档=945、16级8档=1213、25级2档=380。
-                套改查表功能请使用详情页「套改测算」工作区（输入现任职务/任职时间等，实时出三方案结果）。
+                2014 年 10 月调整后级别工资标准（国办发〔2015〕3号），按级别 × 档次排列。
               </p>
             </div>
           )}
