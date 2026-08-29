@@ -363,18 +363,19 @@ export function DetailPanel({ person, unitName, canEdit, onTool, onToast, onDele
 
   return (
     <div className="anim-panel flex-1 min-h-0 flex flex-col gap-3">
-      {/* 需求3：页签上移到人员信息工具栏之前 */}
-      <div className="shrink-0 seg w-fit">
-        <button className={`seg-item ${mode === "base" ? "active" : ""}`} onClick={() => setMode("base")}>
-          <Icon name="user" size={12} />基本信息
-        </button>
-        <button className={`seg-item ${mode === "detail" ? "active" : ""}`} onClick={() => setMode("detail")}>
-          <Icon name="grid" size={12} />详细资料
-        </button>
-      </div>
-
-      {/* ================= 工具栏 ================= */}
+      {/* ================= 工具栏（需求3：页签位于行首，与人员信息同行） ================= */}
       <div className="shrink-0 flex items-center gap-2.5 flex-wrap">
+        {/* 页签切换：基本信息 | 详细资料 */}
+        <div className="shrink-0 seg">
+          <button className={`seg-item ${mode === "base" ? "active" : ""}`} onClick={() => setMode("base")}>
+            <Icon name="user" size={12} />基本信息
+          </button>
+          <button className={`seg-item ${mode === "detail" ? "active" : ""}`} onClick={() => setMode("detail")}>
+            <Icon name="grid" size={12} />详细资料
+          </button>
+        </div>
+        <span className="w-px h-5 bg-[var(--line)] shrink-0 hidden sm:block" />
+
         <div className="flex items-center gap-2.5 min-w-0">
           <span className="font-mono2 text-[12px] px-2 py-1 rounded-md border border-[var(--line)] bg-[var(--bg-2)] text-[var(--acc)]">
             №{String(person.id).padStart(3, "0")}
