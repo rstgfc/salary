@@ -4,8 +4,12 @@ import {
 } from "../data";
 import { Icon } from "./icons";
 import { POLICY_CONFIG } from "../core/calculator";
-import { LEVEL_SALARY, LOWER_POSITION, POSITIONS, POSITION_SALARY } from "../core/salarydata";
+import { LOWER_POSITION } from "../core/salarydata";
 import { POSITION_LEVELS } from "../data";
+import {
+  WAGE_ERAS, getDutyStd, getGradeStd, getTibet,
+  updateDutyCell, updateGradeCell, updateTibet,
+} from "../core/wageStd";
 import { Btn, Modal } from "./modals";
 
 /* ================= 计算器 ================= */
@@ -144,7 +148,7 @@ export function AllowanceModal({ person, unitName, onClose, onToast }: {
   };
 
   return (
-    <Modal title={`津贴编辑输出 · ${person.name}`} icon="allowance" onClose={onClose} w={560}
+    <Modal title={`编辑津贴 · ${person.name}`} icon="allowance" onClose={onClose} w={560}
       footer={<><Btn onClick={onClose}>关闭</Btn><Btn kind="primary" onClick={doOutput}>输出到剪贴板</Btn></>}>
       <div className="rounded-lg border border-[var(--line)] divide-y divide-[var(--line-2)]">
         {items.map((i) => (
@@ -170,24 +174,41 @@ export function AllowanceModal({ person, unitName, onClose, onToast }: {
   );
 }
 
-/* ================= 目录数据 ================= */
-type CatalogTab = "duty" | "rank" | "position";
+/* ================= 工资标准（数据库驱动） ================= */
+type CatalogTab = "duty" | "rank" | "tibet" | "position";
 
 const TH = "tbl-head px-2.5 py-1.5 text-left";
 const TH_R = "tbl-head px-2 py-1.5 text-right";
 
-export function CatalogModal({ onClose }: { onClose: () => void }) {
+export function CatalogModal({ onClose, canEdit = true, onToast }: {
+  onClose: () => void; canEdit?: boolean;
+  onToast?: (t: "success" | "error" | "info", m: string) => void;
+}) {
   const [tab, setTab] = useState<CatalogTab>("duty");
+  const [era, setEra] = useState<string>("2014-10");
+  const [bump, setBump] = useState(0); // 编辑后强制重读数据库
   const tabs: [CatalogTab, string][] = [
-    ["duty", "职务工资标准表"], ["rank", "级别工资标准表"], ["position", "职务层次表"],
+    ["duty", "职务工资表"], ["rank", "级别工资表"], ["tibet", "西藏特殊津贴对照表"], ["position", "职务层次表"],
   ];
 
-  /* 级别工资标准表最大档数（取所有级别中最长的） */
-  const maxGrades = Math.max(...Object.values(LEVEL_SALARY).map((a) => a.length));
+  const dutyRows = getDutyStd(era);
+  const gradeRows = getGradeStd(era); // 级别 1 升序 → 27
+  const maxGrades = Math.max(1, ...gradeRows.map((g) => g.steps.length));
+  const tibetRows = getTibet();
+
+  const eraLabel = (e: string) => e.replace("-", " 年 ") + " 月";
 
   return (
-    <Modal title="工资标准" icon="catalog" onClose={onClose} w={760}
-      footer={<><span className="mr-auto text-[11px] text-[var(--tx-3)]">依据：国办发〔2015〕3号 · 2014 年 10 月起执行 · 仅供测算参考</span><Btn kind="primary" onClick={onClose}>关闭</Btn></>}>
+    <Modal title="工资标准" icon="catalog" onClose={onClose} w={780}
+      footer={<><span className="mr-auto text-[11px] text-[var(--tx-3)]">数据存于本地数据库，可直接修改；暂无新数据的期次沿用上一期标准</span><Btn kind="primary" onClick={onClose}>关闭</Btn></>}>
+      {/* 调整期次选择 */}
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-[11.5px] text-[var(--tx-2)]">基本工资标准期次</span>
+        <select value={era} onChange={(e) => setEra(e.target.value)} className="field h-7 px-2 text-[12px] font-mono2">
+          {WAGE_ERAS.map((e) => <option key={e} value={e}>{eraLabel(e)}</option>)}
+        </select>
+        <span className="text-[10.5px] text-[var(--tx-3)]">2006/7、2014/10、2018/7、2021/10、2024/7 五次调整</span>
+      </div>
       <div className="flex items-center gap-1 border-b border-[var(--line)] overflow-x-auto">
         {tabs.map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)}
@@ -203,7 +224,7 @@ export function CatalogModal({ onClose }: { onClose: () => void }) {
 
       <div className="mt-3 rounded-lg border border-[var(--line)] overflow-hidden">
         <div className="max-h-[400px] overflow-auto">
-          {/* 职务工资标准表（2014 年后，按职务层次，领导/非领导分列） */}
+          {/* 职务工资表（数据库，按职务层次，领导/非领导分列，可编辑） */}
           {tab === "duty" && (
             <div>
               <table className="w-full text-[12px]">
@@ -213,25 +234,35 @@ export function CatalogModal({ onClose }: { onClose: () => void }) {
                   <th className={TH_R}>非领导职务（元/月）</th>
                 </tr></thead>
                 <tbody>
-                  {[...POSITIONS].reverse().map((pos, i) => {
-                    const s = POSITION_SALARY[pos];
-                    return (
-                      <tr key={pos} className={`border-b border-[var(--line-2)] ${i % 2 === 1 ? "bg-[var(--hov)]" : ""} hover:bg-[var(--sel)]`}>
-                        <td className="px-3 py-1.5 text-[var(--tx-1)]">{pos}</td>
-                        <td className="px-2 py-1.5 text-right font-mono2 text-[var(--tx-1)]">{s?.leader != null ? fmt(s.leader) : "—"}</td>
-                        <td className="px-2 py-1.5 text-right font-mono2 text-[var(--tx-1)]">{s?.nonLeader != null ? fmt(s.nonLeader) : "—"}</td>
-                      </tr>
-                    );
-                  })}
+                  {dutyRows.map((r, i) => (
+                    <tr key={r.dutyIndex} className={`border-b border-[var(--line-2)] ${i % 2 === 1 ? "bg-[var(--hov)]" : ""} hover:bg-[var(--sel)]`}>
+                      <td className="px-3 py-1.5 text-[var(--tx-1)]">{r.label}</td>
+                      {(["leader", "nonLeader"] as const).map((f) => (
+                        <td key={f} className="px-2 py-1.5 text-right">
+                          <input
+                            type="number"
+                            value={r[f] ?? ""}
+                            disabled={!canEdit}
+                            onChange={(e) => {
+                              updateDutyCell(era, r.dutyIndex, f === "leader" ? "leader" : "non_leader", e.target.value === "" ? null : Number(e.target.value));
+                              setBump((b) => b + 1);
+                              onToast?.("success", `已更新 ${r.label} ${f === "leader" ? "领导" : "非领导"}职务工资`);
+                            }}
+                            className="w-[76px] h-6 px-1.5 text-right font-mono2 text-[11.5px] rounded border border-[var(--line)] bg-[var(--bg-3)] text-[var(--tx-1)] outline-none focus:border-[rgba(10,132,255,.6)] transition disabled:opacity-50"
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
               <p className="px-3 pt-2 pb-1.5 text-[10px] text-[var(--tx-3)] leading-relaxed">
-                2014 年 10 月调整后标准（国办发〔2015〕3号）。测算引擎在「调整工资标准」后自动套用本表（按领导/非领导区分）。
+                {eraLabel(era)} 职务工资标准，按职务层次排列，可直接修改并存入数据库。
               </p>
             </div>
           )}
 
-          {/* 级别工资标准表（2014 年后） */}
+          {/* 级别工资表（数据库，级别从一级向下到二十七级，可编辑） */}
           {tab === "rank" && (
             <div>
               <table className="text-[11px] border-collapse">
@@ -244,26 +275,82 @@ export function CatalogModal({ onClose }: { onClose: () => void }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {Array.from({ length: 27 }, (_, i) => 27 - i).map((L) => {
-                    const arr = LEVEL_SALARY[L] ?? [];
-                    return (
-                      <tr key={L} className={L % 2 === 0 ? "bg-[var(--hov)]" : ""}>
-                        <td className="sticky left-0 z-10 px-2.5 py-1 font-mono2 border-r border-[var(--line-2)] whitespace-nowrap text-[var(--acc)] bg-[var(--bg-2)]">{L}级</td>
-                        {Array.from({ length: maxGrades }, (_, g) => g).map((g) => {
-                          const v = arr[g];
-                          return (
-                            <td key={g} className={`px-2 py-1 text-right font-mono2 whitespace-nowrap ${v == null ? "" : "text-[var(--tx-1)]"}`}>
-                              {v != null ? v.toLocaleString() : ""}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    );
-                  })}
+                  {gradeRows.map(({ lvl, steps }) => (
+                    <tr key={lvl} className={lvl % 2 === 0 ? "bg-[var(--hov)]" : ""}>
+                      <td className="sticky left-0 z-10 px-2.5 py-1 font-mono2 border-r border-[var(--line-2)] whitespace-nowrap text-[var(--acc)] bg-[var(--bg-2)]">{lvl}级</td>
+                      {Array.from({ length: maxGrades }, (_, g) => g).map((g) => {
+                        const v = steps[g];
+                        return (
+                          <td key={g} className="px-1 py-0.5 text-right">
+                            {v == null ? (
+                              <span className="px-1 text-[var(--tx-3)]">—</span>
+                            ) : (
+                              <input
+                                type="number"
+                                defaultValue={v}
+                                disabled={!canEdit}
+                                onBlur={(e) => {
+                                  const nv = Number(e.target.value);
+                                  if (!Number.isNaN(nv) && nv !== v) {
+                                    updateGradeCell(era, lvl, g + 1, nv);
+                                    setBump((b) => b + 1);
+                                    onToast?.("success", `已更新 ${lvl}级${g + 1}档 = ${nv}`);
+                                  }
+                                }}
+                                className="w-[58px] h-6 px-1 text-right font-mono2 text-[11px] rounded border border-transparent bg-transparent text-[var(--tx-1)] outline-none hover:border-[var(--line)] focus:border-[rgba(10,132,255,.6)] focus:bg-[var(--bg-3)] transition disabled:opacity-60"
+                              />
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
               <p className="px-3 pt-2 pb-1.5 text-[10px] text-[var(--tx-3)] leading-relaxed">
-                2014 年 10 月调整后级别工资标准（国办发〔2015〕3号），按级别 × 档次排列。
+                {eraLabel(era)} 级别工资标准，级别从一级向下排至二十七级，修改后自动存入数据库。
+              </p>
+            </div>
+          )}
+
+          {/* 西藏特殊津贴绝对额对照表（竖列=职务职级，横列=工资类区） */}
+          {tab === "tibet" && (
+            <div>
+              <table className="w-full text-[12px]">
+                <thead><tr>
+                  <th className={TH}>职务职级</th>
+                  <th className={TH_R}>二类区（元）</th>
+                  <th className={TH_R}>三类区（元）</th>
+                  <th className={TH_R}>四类区（元）</th>
+                </tr></thead>
+                <tbody>
+                  {tibetRows.map((r, i) => (
+                    <tr key={r.dutyLabel} className={`border-b border-[var(--line-2)] ${i % 2 === 1 ? "bg-[var(--hov)]" : ""} hover:bg-[var(--sel)]`}>
+                      <td className="px-3 py-1.5 text-[var(--tx-1)]">{r.dutyLabel}</td>
+                      {([["zone2", r.zone2], ["zone3", r.zone3], ["zone4", r.zone4]] as const).map(([z, val]) => (
+                        <td key={z} className="px-2 py-1.5 text-right">
+                          <input
+                            type="number"
+                            defaultValue={val}
+                            disabled={!canEdit}
+                            onBlur={(e) => {
+                              const nv = Number(e.target.value);
+                              if (!Number.isNaN(nv) && nv !== val) {
+                                updateTibet(r.dutyLabel, z, nv);
+                                setBump((b) => b + 1);
+                                onToast?.("success", `已更新 ${r.dutyLabel} ${z === "zone2" ? "二类区" : z === "zone3" ? "三类区" : "四类区"}绝对额 = ${nv}`);
+                              }
+                            }}
+                            className="w-[70px] h-6 px-1.5 text-right font-mono2 text-[11.5px] rounded border border-transparent bg-transparent text-[var(--tx-1)] outline-none hover:border-[var(--line)] focus:border-[rgba(10,132,255,.6)] focus:bg-[var(--bg-3)] transition disabled:opacity-60"
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="px-3 pt-2 pb-1.5 text-[10px] text-[var(--tx-3)] leading-relaxed">
+                西藏特殊津贴绝对额对照表（临时填充，待补充）。倍数另按类区计算：二类区×1.4、三类区×1.7、四类区×2.0（作用于基本工资小计）。
               </p>
             </div>
           )}

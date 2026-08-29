@@ -99,11 +99,11 @@ export type MenuKey =
 const MENUS: { key: MenuKey; label: string; icon: IconName; danger?: boolean }[] = [
   { key: "unit", label: "单位管理", icon: "unit" },
   { key: "person", label: "人员增加", icon: "user" },
-  { key: "allowance", label: "津贴编辑输出", icon: "allowance" },
+  { key: "allowance", label: "编辑津贴", icon: "allowance" },
   { key: "query", label: "综合查询", icon: "query" },
   { key: "recalc", label: "全部重算", icon: "recalc" },
   { key: "rolling", label: "滚动判断", icon: "rolling" },
-  { key: "del", label: "删除选择", icon: "trash" },
+  { key: "del", label: "人员删除", icon: "trash" },
   { key: "catalog", label: "工资标准", icon: "catalog" },
   { key: "calc", label: "计算器", icon: "calc" },
   { key: "register", label: "注册", icon: "key" },

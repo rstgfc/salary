@@ -54,7 +54,7 @@
 
 body {
   font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--tx-1);
   background: var(--bg-0);
   -webkit-font-smoothing: antialiased;

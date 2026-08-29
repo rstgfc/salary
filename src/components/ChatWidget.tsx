@@ -69,9 +69,11 @@ const ICON_SIZE = 52;
 
 export function ChatWidget({ user, userName, persons, onToast }: {
   user: string; userName: string;
-  persons: { id: number; name: string; employ: string }[];
+  persons?: { id: number; name: string; employ: string }[];
   onToast: (t: "success" | "error" | "info", m: string) => void;
 }) {
+  /* 防御：persons 缺失时退化为空列表，避免 undefined.map 崩溃 */
+  const contactList = persons ?? [];
   /* 窗口形态：float = 浮动窗口；dock = 右侧折叠窗（从右往左展开） */
   const [formMode, setFormMode] = useState<"float" | "dock">(() => load<"float" | "dock">("gw_chat_form", "float"));
   const [dockOpen, setDockOpen] = useState(true);
@@ -110,13 +112,13 @@ export function ChatWidget({ user, userName, persons, onToast }: {
   /* ---------- 用户花名册（左侧标签页，需求3） ---------- */
   const contacts = useMemo(
     () =>
-      persons.map((p) => ({
+      contactList.map((p) => ({
         id: `p${p.id}`,
         name: p.name,
         initial: p.name.slice(0, 1),
         online: p.employ === "在职",
       })),
-    [persons]
+    [contactList]
   );
 
   /* 当前会话可见消息：群聊 = 无 to 的消息；私聊 = 双方互发 */

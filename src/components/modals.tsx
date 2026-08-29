@@ -428,7 +428,7 @@ export function ConfirmDeleteModal({ person, onCancel, onConfirm }: {
   person: Person; onCancel: () => void; onConfirm: () => void;
 }) {
   return (
-    <Modal title="删除选择" icon="trash" onClose={onCancel} w={420}
+    <Modal title="人员删除" icon="trash" onClose={onCancel} w={420}
       footer={<><Btn onClick={onCancel}>取消</Btn><Btn kind="danger" onClick={onConfirm}>确认删除</Btn></>}>
       <div className="flex items-start gap-3">
         <div className="w-9 h-9 rounded-lg bg-[rgba(255,69,58,.12)] border border-[rgba(255,69,58,.4)] flex items-center justify-center shrink-0">
@@ -498,11 +498,11 @@ export function RegisterModal({ machine, registered, onClose, onRegister }: {
 /* ================= 帮助 ================= */
 const HELP_MENUS: [IconName, string, string][] = [
   ["unit", "单位增加", "维护单位目录，新增 / 删除预算单位"],
-  ["allowance", "津贴编辑输出", "编辑当前人员津贴补贴标准并导出文本"],
+  ["allowance", "编辑津贴", "增删津贴名目、调整标准并导出文本"],
   ["query", "综合查询", "按编号、姓名、状态多条件检索人员"],
   ["recalc", "全部重算", "以 calculator.js 核心对全体人员重新核验三方案套改结果"],
   ["rolling", "滚动判断", "判断当前人员是否满足 5 年滚动晋级"],
-  ["trash", "删除选择", "删除当前选中人员及其演变台账"],
+  ["trash", "人员删除", "删除当前选中人员及其演变台账"],
   ["catalog", "工资标准", "查阅 2014 年后职务 / 级别工资标准表与职务层次表"],
   ["calc", "计算器", "标准计算与增资测算辅助工具"],
 ];

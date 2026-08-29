@@ -226,7 +226,7 @@ export default function App() {
         setModal("rolling"); break;
       case "del":
         if (!selected) { pushToast("error", "人员列表为空，无可删除对象"); return; }
-        if (requireEdit("删除选择")) setModal("del");
+        if (requireEdit("人员删除")) setModal("del");
         break;
       case "recalc":
         if (persons.length === 0) { pushToast("error", "人员列表为空，无法执行重算"); return; }
@@ -419,6 +419,7 @@ export default function App() {
               key={selected.id}
               person={selected}
               unitName={unitName(selected.unitId)}
+              zone={units.find((u) => u.id === selected.unitId)?.zone ?? "二类区"}
               canEdit={canEdit}
               onTool={onTool}
               onToast={pushToast}
@@ -466,7 +467,7 @@ export default function App() {
         <ConfirmDeleteModal person={selected} onCancel={() => setModal(null)} onConfirm={confirmDelete} />
       )}
       {modal === "catalog" && (
-        <CatalogModal onClose={() => setModal(null)} />
+        <CatalogModal onClose={() => setModal(null)} canEdit={canEdit} onToast={pushToast} />
       )}
       {modal === "calc" && <CalcModal onClose={() => setModal(null)} />}
       {modal === "register" && (
@@ -475,8 +476,8 @@ export default function App() {
       {modal === "help" && <HelpModal onClose={() => setModal(null)} />}
       {modal === "exit" && <ExitModal onStay={() => setModal(null)} onExit={() => setExited(true)} />}
 
-      {/* 需求7：悬浮聊天 */}
-      <ChatWidget user={session.name} userName={session.name} onToast={pushToast} />
+      {/* 需求7：悬浮聊天（传入人员花名册用于私聊） */}
+      <ChatWidget user={session.name} userName={session.name} persons={persons} onToast={pushToast} />
 
       <ToastStack toasts={toasts} onDismiss={(id) => setToasts((t) => t.filter((x) => x.id !== id))} />
     </div>

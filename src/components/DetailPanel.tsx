@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { EMPLOY_META, Employ, Person, TAG_META, fmt, fmtLevel } from "../data";
+import type { WageZone } from "../data";
 import { Icon, IconName } from "./icons";
 import { SalaryPanel } from "./SalaryPanel";
 import { TaogaiModal } from "./modals";
@@ -138,9 +139,10 @@ function calcAltitudeSubsidy(rows: AltRow[], currentYear: number): number {
   return total;
 }
 
-export function DetailPanel({ person, unitName, canEdit, onTool, onToast, onDelete, onSaved }: {
+export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, onDelete, onSaved }: {
   person: Person;
   unitName: string;
+  zone?: WageZone;               // 单位工资类区（西藏特殊津贴按类区计算）
   canEdit: boolean;
   onTool: (a: "query" | Employ) => void;
   onToast: (t: "success" | "error" | "info", m: string) => void;
@@ -678,7 +680,7 @@ export function DetailPanel({ person, unitName, canEdit, onTool, onToast, onDele
           </div>
 
           {/* -------- 右列：当前工资 -------- */}
-          <SalaryPanel personId={person.id} results={results} latestDutyIndex={latestDutyIndex} canEdit={canEdit} onToast={onToast} altitudeSubsidy={altitudeSubsidy} />
+          <SalaryPanel personId={person.id} results={results} latestDutyIndex={latestDutyIndex} canEdit={canEdit} onToast={onToast} altitudeSubsidy={altitudeSubsidy} zone={zone} />
         </div>
       )}
 

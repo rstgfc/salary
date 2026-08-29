@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { fmt } from "../data";
+import type { WageZone } from "../data";
 import { Icon } from "./icons";
 import { Calculator, dutyWage2006, POLICY_CONFIG } from "../core/calculator";
 import type { CalcRunResult } from "../core/calculator";
 import { getTibetAbs, getTibetFactor } from "../core/wageStd";
-import type { WageZone } from "../data";
 
 /* ---------- 结构 ---------- */
 interface AddonItem { id: string; label: string; steps: number; unit: number; }
@@ -77,13 +77,14 @@ function Divider() {
 }
 
 /* ---------- 当前工资面板（需求6） ---------- */
-export function SalaryPanel({ personId, results, latestDutyIndex, canEdit, onToast, altitudeSubsidy = 0 }: {
+export function SalaryPanel({ personId, results, latestDutyIndex, canEdit, onToast, altitudeSubsidy = 0, zone = "二类区" }: {
   personId: number;
   results: CalcRunResult | null;
   latestDutyIndex: number;
   canEdit: boolean;
   onToast: (t: "success" | "error" | "info", m: string) => void;
   altitudeSubsidy?: number; // 需求6：海拔折算工龄补贴
+  zone?: WageZone;          // 单位工资类区：西藏特殊津贴倍数/绝对额按类区计算
 }) {
   const [addons, setAddons] = useState<AddonItem[]>(DEFAULT_ADDONS);
   const [allowances, setAllowances] = useState<AllowanceRow[]>(DEFAULT_ALLOWANCES);
@@ -157,9 +158,17 @@ export function SalaryPanel({ personId, results, latestDutyIndex, canEdit, onToa
   const displayGrade = finalGrade + extraSteps;
 
   /* 需求6：津贴里的"折算工龄补贴"由海拔累计驱动 */
+  /* 西藏特殊津贴：倍数=基本工资小计×类区系数（二类1.4/三类1.7/四类2.0）；绝对额=数据库对照表 */
+  const tibetFactor = getTibetFactor(zone);
   const effectiveAllowances = useMemo(
-    () => allowances.map((a) => (a.id === "zheSuan" ? { ...a, amount: altitudeSubsidy, detail: "按海拔档次累计" } : a)),
-    [allowances, altitudeSubsidy]
+    () =>
+      allowances.map((a) => {
+        if (a.id === "zheSuan") return { ...a, amount: altitudeSubsidy, detail: "按海拔档次累计" };
+        if (a.id === "xzMulti") return { ...a, amount: Math.round(basicSubtotal * tibetFactor), detail: `${Math.round(tibetFactor * 100)}%（${zone}）` };
+        if (a.id === "xzAbs") return { ...a, amount: getTibetAbs(dutyLabel, zone), detail: zone };
+        return a;
+      }),
+    [allowances, altitudeSubsidy, basicSubtotal, tibetFactor, zone, dutyLabel]
   );
   const allowancesTotal = effectiveAllowances.reduce((s, a) => s + a.amount, 0);
   const total = basicSubtotal + allowancesTotal;
@@ -216,7 +225,7 @@ export function SalaryPanel({ personId, results, latestDutyIndex, canEdit, onToa
             label={a.label}
             detail={a.detail}
             amount={a.amount}
-            editable={a.id !== "zheSuan"}
+            editable={a.id !== "zheSuan" && a.id !== "xzMulti" && a.id !== "xzAbs"}
             canEdit={canEdit}
             onAmount={(v) => setAllowanceAmount(a.id, v)}
           />
