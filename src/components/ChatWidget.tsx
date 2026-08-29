@@ -60,11 +60,34 @@ const fmtTime = (t: number) => {
 
 const uid = () => `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
+/* 相对定位辅助：以窗口宽高的比例存储坐标，窗口缩放后仍保持相对位置 */
+const vw = () => (typeof window !== "undefined" ? window.innerWidth : 1200);
+const vh = () => (typeof window !== "undefined" ? window.innerHeight : 800);
+const clamp01 = (n: number) => Math.min(Math.max(n, 0.02), 0.98);
+const ICON_SIZE = 52;
+
 export function ChatWidget({ user, userName, onToast }: {
   user: string; userName: string;
   onToast: (t: "success" | "error" | "info", m: string) => void;
 }) {
-  const [pos, setPos] = useState<{ x: number; y: number }>(() => load(POS_KEY, { x: window.innerWidth - 76, y: window.innerHeight - 140 }));
+  /* 图标位置以「相对窗口的比例」存储，窗口缩放后仍保持相对位置、不会消失 */
+  const [iconRatio, setIconRatio] = useState<{ rx: number; ry: number }>(() => {
+    const d = load<{ rx?: number; ry?: number; x?: number; y?: number } | null>(POS_KEY, null);
+    if (d && typeof d.rx === "number" && typeof d.ry === "number") return { rx: d.rx, ry: d.ry };
+    /* 兼容旧版绝对坐标存档 */
+    if (d && typeof d.x === "number" && typeof d.y === "number") return { rx: clamp01(d.x / vw()), ry: clamp01(d.y / vh()) };
+    return { rx: 0.94, ry: 0.82 };
+  });
+  const [, setFrame] = useState(0);
+  useEffect(() => {
+    const onResize = () => setFrame((f) => f + 1); // 缩放窗口时重新计算位置
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const pos = {
+    x: Math.min(Math.max(iconRatio.rx * vw(), 8), vw() - ICON_SIZE - 8),
+    y: Math.min(Math.max(iconRatio.ry * vh(), 8), vh() - ICON_SIZE - 8),
+  };
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"chat" | "files">("chat");
   const [msgs, setMsgs] = useState<Msg[]>(() => load<Msg[]>(MSG_KEY, []));
@@ -106,15 +129,14 @@ export function ChatWidget({ user, userName, onToast }: {
     const dx = e.clientX - d.startX;
     const dy = e.clientY - d.startY;
     if (Math.abs(dx) + Math.abs(dy) > 4) d.moved = true;
-    const size = 52;
-    const nx = Math.min(Math.max(d.origX + dx, 8), window.innerWidth - size - 8);
-    const ny = Math.min(Math.max(d.origY + dy, 8), window.innerHeight - size - 8);
-    setPos({ x: nx, y: ny });
+    const nx = Math.min(Math.max(d.origX + dx, 8), vw() - ICON_SIZE - 8);
+    const ny = Math.min(Math.max(d.origY + dy, 8), vh() - ICON_SIZE - 8);
+    setIconRatio({ rx: nx / vw(), ry: ny / vh() });
   };
   const onPointerUp = () => {
     const d = dragRef.current;
     dragRef.current = null;
-    save(POS_KEY, pos);
+    save(POS_KEY, iconRatio);
     if (d && !d.moved) setOpen((v) => !v); // 视为点击
   };
 
@@ -154,9 +176,18 @@ export function ChatWidget({ user, userName, onToast }: {
   };
 
   /* ---------- 需求1：面板独立定位（标题栏拖动）+ 可调节大小 ---------- */
-  const [panelPos, setPanelPos] = useState<{ x: number; y: number }>(() =>
-    load("gw_chat_pp_v1", { x: Math.max(8, (typeof window !== "undefined" ? window.innerWidth : 1200) - 380), y: 110 }));
+  /* 面板位置同样以比例存储，窗口缩放后保持相对位置、不会跑出屏幕 */
+  const [panelRatio, setPanelRatio] = useState<{ rx: number; ry: number }>(() => {
+    const d = load<{ rx?: number; ry?: number; x?: number; y?: number } | null>("gw_chat_pp_v1", null);
+    if (d && typeof d.rx === "number" && typeof d.ry === "number") return { rx: d.rx, ry: d.ry };
+    if (d && typeof d.x === "number" && typeof d.y === "number") return { rx: clamp01(d.x / vw()), ry: clamp01(d.y / vh()) };
+    return { rx: 0.66, ry: 0.18 };
+  });
   const [panelSize, setPanelSize] = useState<{ w: number; h: number }>(() => load("gw_chat_ps_v1", { w: 340, h: 470 }));
+  const panelPos = {
+    x: Math.min(Math.max(panelRatio.rx * vw(), 8), Math.max(8, vw() - panelSize.w - 8)),
+    y: Math.min(Math.max(panelRatio.ry * vh(), 8), Math.max(8, vh() - panelSize.h - 8)),
+  };
   const winDrag = useRef<{ mode: "move" | "resize"; startX: number; startY: number; origX: number; origY: number; origW: number; origH: number } | null>(null);
 
   const onTitleDown = (e: React.PointerEvent) => {
@@ -173,23 +204,21 @@ export function ChatWidget({ user, userName, onToast }: {
     if (!d) return;
     const dx = e.clientX - d.startX;
     const dy = e.clientY - d.startY;
-    const vw = window.innerWidth, vh = window.innerHeight;
     if (d.mode === "move") {
-      setPanelPos({
-        x: Math.min(Math.max(d.origX + dx, 60 - panelSize.w), vw - 60),
-        y: Math.min(Math.max(d.origY + dy, 0), vh - 44),
-      });
+      const nx = Math.min(Math.max(d.origX + dx, 60 - panelSize.w), vw() - 60);
+      const ny = Math.min(Math.max(d.origY + dy, 0), vh() - 44);
+      setPanelRatio({ rx: nx / vw(), ry: ny / vh() });
     } else {
       setPanelSize({
-        w: Math.min(Math.max(d.origW + dx, 300), Math.max(300, vw - panelPos.x - 8)),
-        h: Math.min(Math.max(d.origH + dy, 320), Math.max(320, vh - panelPos.y - 8)),
+        w: Math.min(Math.max(d.origW + dx, 300), Math.max(300, vw() - panelPos.x - 8)),
+        h: Math.min(Math.max(d.origH + dy, 320), Math.max(320, vh() - panelPos.y - 8)),
       });
     }
   };
   const onWinUp = () => {
     if (!winDrag.current) return;
     winDrag.current = null;
-    save("gw_chat_pp_v1", panelPos);
+    save("gw_chat_pp_v1", panelRatio);
     save("gw_chat_ps_v1", panelSize);
   };
 
@@ -197,22 +226,24 @@ export function ChatWidget({ user, userName, onToast }: {
 
   return (
     <>
-      {/* 悬浮图标（可拖拽） */}
-      <button
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        title="内部消息 · 点击打开，可拖动"
-        className="fixed z-[90] w-[52px] h-[52px] rounded-full flex items-center justify-center text-white shadow-[0_10px_30px_rgba(10,132,255,.45)] transition-transform active:scale-95 touch-none select-none"
-        style={{ left: pos.x, top: pos.y, background: "linear-gradient(135deg,#0a84ff,#5ac8fa)", cursor: "grab" }}
-      >
-        <Icon name="chat" size={24} />
-        {msgs.length > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[#ff375f] text-white text-[10px] font-bold flex items-center justify-center border-2 border-[var(--bg-0)]">
-            {msgs.length > 99 ? "99+" : msgs.length}
-          </span>
-        )}
-      </button>
+      {/* 悬浮图标（可拖拽）；打开聊天窗时隐藏 */}
+      {!open && (
+        <button
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          title="内部消息 · 点击打开，可拖动"
+          className="fixed z-[90] w-[52px] h-[52px] rounded-full flex items-center justify-center text-white shadow-[0_10px_30px_rgba(10,132,255,.45)] transition-transform active:scale-95 touch-none select-none"
+          style={{ left: pos.x, top: pos.y, background: "linear-gradient(135deg,#0a84ff,#5ac8fa)", cursor: "grab" }}
+        >
+          <Icon name="chat" size={24} />
+          {msgs.length > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[#ff375f] text-white text-[10px] font-bold flex items-center justify-center border-2 border-[var(--bg-0)]">
+              {msgs.length > 99 ? "99+" : msgs.length}
+            </span>
+          )}
+        </button>
+      )}
 
       {/* 聊天面板 */}
       {open && (
