@@ -3,6 +3,8 @@ import { fmt } from "../data";
 import { Icon } from "./icons";
 import { Calculator, dutyWage2006, POLICY_CONFIG } from "../core/calculator";
 import type { CalcRunResult } from "../core/calculator";
+import { getTibetAbs, getTibetFactor } from "../core/wageStd";
+import type { WageZone } from "../data";
 
 /* ---------- 结构 ---------- */
 interface AddonItem { id: string; label: string; steps: number; unit: number; }

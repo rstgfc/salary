@@ -72,6 +72,26 @@ CREATE TABLE IF NOT EXISTS persons (
 );
 CREATE INDEX IF NOT EXISTS idx_persons_unit ON persons(unit_id);
 CREATE INDEX IF NOT EXISTS idx_persons_name ON persons(name);
+CREATE TABLE IF NOT EXISTS wage_duty (
+  era        TEXT NOT NULL,
+  duty_index INTEGER NOT NULL,
+  leader     INTEGER,
+  non_leader INTEGER,
+  PRIMARY KEY (era, duty_index)
+);
+CREATE TABLE IF NOT EXISTS wage_grade (
+  era    TEXT NOT NULL,
+  lvl    INTEGER NOT NULL,
+  step   INTEGER NOT NULL,
+  amount INTEGER NOT NULL,
+  PRIMARY KEY (era, lvl, step)
+);
+CREATE TABLE IF NOT EXISTS tibet_abs (
+  duty_label TEXT PRIMARY KEY,
+  zone2 INTEGER NOT NULL DEFAULT 0,
+  zone3 INTEGER NOT NULL DEFAULT 0,
+  zone4 INTEGER NOT NULL DEFAULT 0
+);
 `;
 
 export async function initDb(): Promise<void> {
@@ -92,6 +112,32 @@ export async function initDb(): Promise<void> {
     PEOPLE.forEach((p) => upsertPerson(p));
     await flush();
   }
+
+  /* 工资标准表播种（含西藏特殊津贴绝对额对照表） */
+  try {
+    const { seedWageTables } = await import("./wageStd");
+    seedWageTables();
+  } catch { /* ignore */ }
+}
+
+/* ---------------- 通用 SQL 辅助（供 wageStd 等模块使用） ---------------- */
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function dbRun(sql: string, params: unknown[] = []): void {
+  if (!db) return;
+  db.run(sql, params as any);
+}
+
+export function dbAll(sql: string, params: unknown[] = []): Record<string, unknown>[] {
+  if (!db) return [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stmt = (db as any).prepare(sql);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  stmt.bind(params as any);
+  const rows: Record<string, unknown>[] = [];
+  while (stmt.step()) rows.push(stmt.getAsObject() as Record<string, unknown>);
+  stmt.free();
+  return rows;
 }
 
 export const isDbReady = () => !!db;
