@@ -1,14 +1,14 @@
 import React, { useState } from "react";
 import {
-  AllowanceItem, Person, Unit, defaultAllowances, fmt, lastOf,
+  AllowanceItem, Person, Unit, defaultAllowances, lastOf,
 } from "../data";
 import { Icon } from "./icons";
 import { POLICY_CONFIG } from "../core/calculator";
 import { LOWER_POSITION } from "../core/salarydata";
 import { POSITION_LEVELS } from "../data";
 import {
-  WAGE_ERAS, getDutyStd, getGradeStd, getTibet,
-  updateDutyCell, updateGradeCell, updateTibet,
+  WAGE_ERAS, getDutyStd, getGradeStd, getRankStd, getTibet,
+  updateDutyCell, updateGradeCell, updateRankCell, updateTibet,
 } from "../core/wageStd";
 import { Btn, Modal } from "./modals";
 
@@ -116,17 +116,29 @@ export function CalcModal({ onClose }: { onClose: () => void }) {
 }
 
 /* ================= 津贴编辑输出 ================= */
+/* 需求4：弹窗内可自行编辑增减津贴的名称和标准 */
 export function AllowanceModal({ person, unitName, onClose, onToast }: {
   person: Person; unitName: string; onClose: () => void;
   onToast: (t: "success" | "error" | "info", m: string) => void;
 }) {
   const [items, setItems] = useState<AllowanceItem[]>(() => defaultAllowances(person));
+  const [newName, setNewName] = useState("");
+  const [newStd, setNewStd] = useState("");
   const last = lastOf(person);
   const total = items.reduce((s, i) => s + (i.std || 0), 0);
-  const monthly = last.pw + last.lw + total;
 
-  const setStd = (id: string, v: number) =>
-    setItems((arr) => arr.map((i) => (i.id === id ? { ...i, std: Math.max(0, v) } : i)));
+  const setItem = (id: string, patch: Partial<AllowanceItem>) =>
+    setItems((arr) => arr.map((i) => (i.id === id ? { ...i, ...patch } : i)));
+  const removeItem = (id: string) => setItems((arr) => arr.filter((i) => i.id !== id));
+
+  const addItem = () => {
+    const name = newName.trim();
+    if (!name) { onToast("error", "请填写津贴名称"); return; }
+    if (items.some((i) => i.name === name)) { onToast("error", `「${name}」已存在`); return; }
+    setItems((arr) => [...arr, { id: `custom_${Date.now()}`, name, base: "自定义", std: Math.max(0, Number(newStd) || 0) }]);
+    setNewName(""); setNewStd("");
+    onToast("success", `已新增津贴项「${name}」`);
+  };
 
   const output = () => {
     let text = `【${person.name}（编号${person.id}）津贴补贴标准表】\n单位：[${person.unitId}] ${unitName}\n`;
@@ -134,14 +146,14 @@ export function AllowanceModal({ person, unitName, onClose, onToast }: {
     text += "----------------------------------------\n";
     items.forEach((i) => { text += `${i.name}（${i.base}）\t¥${i.std}\n`; });
     text += "----------------------------------------\n";
-    text += `津贴合计\t¥${total}\n月应发合计\t¥${monthly}\n`;
+    text += `津贴合计\t¥${total}\n`;
     return text;
   };
 
   const doOutput = async () => {
     try {
       await navigator.clipboard.writeText(output());
-      onToast("success", `已输出「${person.name}」津贴标准表到剪贴板（¥${monthly}/月）`);
+      onToast("success", `已输出「${person.name}」津贴标准表到剪贴板（津贴合计 ¥${total}）`);
     } catch {
       onToast("error", "输出失败：剪贴板不可用");
     }
@@ -152,23 +164,34 @@ export function AllowanceModal({ person, unitName, onClose, onToast }: {
       footer={<><Btn onClick={onClose}>关闭</Btn><Btn kind="primary" onClick={doOutput}>输出到剪贴板</Btn></>}>
       <div className="rounded-lg border border-[var(--line)] divide-y divide-[var(--line-2)]">
         {items.map((i) => (
-          <div key={i.id} className="flex items-center gap-3 px-3 py-2">
-            <div className="flex-1 min-w-0">
-              <p className="text-[12.5px] text-[var(--tx-1)]">{i.name}</p>
-              <p className="text-[10.5px] text-[var(--tx-3)]">计发口径：{i.base}</p>
+          <div key={i.id} className="flex items-center gap-2 px-3 py-2">
+            <div className="flex-1 min-w-0 flex items-center gap-2">
+              <input value={i.name} onChange={(e) => setItem(i.id, { name: e.target.value })}
+                placeholder="津贴名称" className="field h-7 flex-1 min-w-0 px-2 text-[12.5px]" />
+              <span className="shrink-0 text-[10px] px-1.5 py-px rounded border border-[var(--line)] text-[var(--tx-3)] whitespace-nowrap">{i.base}</span>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 shrink-0">
               <span className="text-[11px] text-[var(--tx-3)]">¥</span>
               <input type="number" min={0} value={i.std}
-                onChange={(e) => setStd(i.id, Number(e.target.value) || 0)}
+                onChange={(e) => setItem(i.id, { std: Math.max(0, Number(e.target.value) || 0) })}
                 className="field w-[92px] h-7 px-2 text-right font-mono2 text-[12.5px]" />
             </div>
+            <button onClick={() => removeItem(i.id)} title="删除此津贴项"
+              className="shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-[var(--tx-3)] hover:text-[#d70015] dark:hover:text-[#ff8b84] hover:bg-[rgba(255,69,58,.1)] transition">
+              <Icon name="trash" size={12} />
+            </button>
           </div>
         ))}
+        {!items.length && <p className="px-3 py-4 text-center text-[11.5px] text-[var(--tx-3)]">暂无津贴项，请在下方新增</p>}
       </div>
-      <div className="mt-3 flex items-center justify-between rounded-lg border border-[var(--line)] bg-[var(--bg-3)] px-3 py-2.5">
-        <span className="text-[12px] text-[var(--tx-2)]">月应发合计（基本工资 + 津贴）</span>
-        <span className="font-mono2 text-[16px] font-bold text-[var(--acc)]">¥{fmt(monthly)}<span className="text-[10px] text-[var(--tx-3)] font-normal"> /月</span></span>
+
+      {/* 需求4：新增津贴项（名称 + 标准） */}
+      <div className="mt-3 flex items-center gap-2">
+        <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="新增津贴名称，如：交通补贴"
+          className="field h-8 flex-1 min-w-0 px-2.5 text-[12.5px]" />
+        <input type="number" min={0} value={newStd} onChange={(e) => setNewStd(e.target.value)} placeholder="标准"
+          className="field h-8 w-[100px] px-2 text-right font-mono2 text-[12.5px]" />
+        <Btn kind="primary" onClick={addItem}>新增</Btn>
       </div>
     </Modal>
   );
@@ -188,10 +211,12 @@ export function CatalogModal({ onClose, canEdit = true, onToast }: {
   const [era, setEra] = useState<string>("2014-10");
   const [bump, setBump] = useState(0); // 编辑后强制重读数据库
   const tabs: [CatalogTab, string][] = [
-    ["duty", "职务工资表"], ["rank", "级别工资表"], ["tibet", "西藏特殊津贴对照表"], ["position", "职务层次表"],
+    ["duty", "职务工资表"], ["rank", "级别工资表"], ["tibet", "西藏特殊津贴标准表"], ["position", "职务层次表"],
   ];
 
   const dutyRows = getDutyStd(era);
+  const rankRows = getRankStd(era); // 职级层次（2018/7 起列示于职务层次下方）
+  const showRanks = era === "2018-07";
   const gradeRows = getGradeStd(era); // 级别 1 升序 → 27
   const maxGrades = Math.max(1, ...gradeRows.map((g) => g.steps.length));
   const tibetRows = getTibet();
@@ -254,10 +279,36 @@ export function CatalogModal({ onClose, canEdit = true, onToast }: {
                       ))}
                     </tr>
                   ))}
+                  {showRanks && (
+                    <>
+                      {/* 2018/7 起：职务与职级并行，职级层次列于职务层次下方 */}
+                      <tr>
+                        <td colSpan={3} className="tbl-head px-3 py-1.5 text-[11.5px] font-semibold text-[var(--tx-2)]">职级层次（职级工资标准 · 元/月）</td>
+                      </tr>
+                      {rankRows.map((r, i) => (
+                        <tr key={r.rankIndex} className={`border-b border-[var(--line-2)] ${(dutyRows.length + i) % 2 === 1 ? "bg-[var(--hov)]" : ""} hover:bg-[var(--sel)]`}>
+                          <td className="px-3 py-1.5 text-[var(--tx-1)]">{r.label}</td>
+                          <td colSpan={2} className="px-2 py-1.5 text-right">
+                            <input
+                              type="number"
+                              value={r.amount ?? ""}
+                              disabled={!canEdit}
+                              onChange={(e) => {
+                                updateRankCell(era, r.rankIndex, e.target.value === "" ? null : Number(e.target.value));
+                                setBump((b) => b + 1);
+                                onToast?.("success", `已更新 ${r.label} 职级工资标准`);
+                              }}
+                              className="w-[76px] h-6 px-1.5 text-right font-mono2 text-[11.5px] rounded border border-[var(--line)] bg-[var(--bg-3)] text-[var(--tx-1)] outline-none focus:border-[rgba(10,132,255,.6)] transition disabled:opacity-50"
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </>
+                  )}
                 </tbody>
               </table>
               <p className="px-3 pt-2 pb-1.5 text-[10px] text-[var(--tx-3)] leading-relaxed">
-                {eraLabel(era)} 职务工资标准，按职务层次排列，可直接修改并存入数据库。
+                {eraLabel(era)} 职务工资标准，按职务层次排列{showRanks ? "，职级层次列于职务层次下方" : ""}，可直接修改并存入数据库。
               </p>
             </div>
           )}
@@ -313,7 +364,7 @@ export function CatalogModal({ onClose, canEdit = true, onToast }: {
             </div>
           )}
 
-          {/* 西藏特殊津贴绝对额对照表（竖列=职务职级，横列=工资类区） */}
+          {/* 西藏特殊津贴标准表（竖列=职务职级，横列=工资类区） */}
           {tab === "tibet" && (
             <div>
               <table className="w-full text-[12px]">
@@ -350,7 +401,7 @@ export function CatalogModal({ onClose, canEdit = true, onToast }: {
                 </tbody>
               </table>
               <p className="px-3 pt-2 pb-1.5 text-[10px] text-[var(--tx-3)] leading-relaxed">
-                西藏特殊津贴绝对额对照表（临时填充，待补充）。倍数另按类区计算：二类区×1.4、三类区×1.7、四类区×2.0（作用于基本工资小计）。
+                西藏特殊津贴标准表（元/月）：竖列为职务职级，横列为二/三/四类区绝对额，可直接修改并存入数据库。倍数另按类区计算：二类区×1.4、三类区×1.7、四类区×2.0（作用于基本工资小计）。
               </p>
             </div>
           )}

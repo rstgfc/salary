@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { EMPLOY_META, Employ, Person, TAG_META, fmt, fmtLevel } from "../data";
+import { EMPLOY_META, Employ, Person, TAG_META, Unit, fmt, fmtLevel } from "../data";
 import type { WageZone } from "../data";
 import { Icon, IconName } from "./icons";
 import { SalaryPanel } from "./SalaryPanel";
@@ -40,6 +40,14 @@ function ToolBtn({ icon, label, color, active, disabled, onClick }: {
 
 const years = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
 const saveKey = (id: number) => `gw_calc_v1_${id}`;
+
+/* 需求1：历史保存记录（撤回保存） */
+const histKey = (id: number) => `gw_calc_hist_v1_${id}`;
+interface HistEntry { savedAt: string; params: CalcRunInput; results: CalcRunResult; }
+const stampNow = () => {
+  const d = new Date(); const p2 = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+};
 
 /* ---------- 需求1：列着色调色板 ---------- */
 const COL_COLORS = ["#0a84ff", "#bf5af2", "#ff9f0a", "#30d158", "#ff375f", "#5ac8fa", "#b8860b", "#64d2ff", "#e05299", "#7a9a3e"];
@@ -126,8 +134,12 @@ function joinToYm(join: string): string {
 
 /* 需求6：每年1月按当时海拔档次累加至当前年份 */
 function calcAltitudeSubsidy(rows: AltRow[], currentYear: number): number {
-  if (!rows.length) return 0;
-  const sorted = [...rows].sort((a, b) => a.ym.localeCompare(b.ym));
+  /* 防御：过滤无效行（旧版本残留数据可能缺失 ym），防止 localeCompare 崩溃 */
+  const valid = (Array.isArray(rows) ? rows : []).filter(
+    (r): r is AltRow => !!r && typeof r.ym === "string" && !!r.ym
+  );
+  if (!valid.length) return 0;
+  const sorted = [...valid].sort((a, b) => a.ym.localeCompare(b.ym));
   const firstYear = parseInt(sorted[0].ym.slice(0, 4), 10);
   let total = 0;
   for (let jy = firstYear + 1; jy <= currentYear; jy++) {
@@ -139,7 +151,7 @@ function calcAltitudeSubsidy(rows: AltRow[], currentYear: number): number {
   return total;
 }
 
-export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, onDelete, onSaved }: {
+export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, onDelete, onSaved, units, onChangeUnit }: {
   person: Person;
   unitName: string;
   zone?: WageZone;               // 单位工资类区（西藏特殊津贴按类区计算）
@@ -148,6 +160,8 @@ export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, 
   onToast: (t: "success" | "error" | "info", m: string) => void;
   onDelete: () => void;          // 需求3
   onSaved?: () => void;
+  units?: Unit[];                        // 需求7：点击单位名可改单位
+  onChangeUnit?: (unitId: string) => void;
 }) {
   const [params, setParams] = useState<CalcRunInput>(() => deriveParams(person));
   const [results, setResults] = useState<CalcRunResult | null>(null);
@@ -155,6 +169,11 @@ export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, 
   const [fromSave, setFromSave] = useState(false);
   const [deductOpen, setDeductOpen] = useState(false);
   const [taogaiOpen, setTaogaiOpen] = useState(false);
+  /* 需求1：历史保存记录（撤回保存） */
+  const [history, setHistory] = useState<HistEntry[]>([]);
+  const [histOpen, setHistOpen] = useState(false);
+  /* 需求7：点击单位名修改单位 */
+  const [unitOpen, setUnitOpen] = useState(false);
 
   /* 需求6：页签模式 基本信息 | 详细资料 */
   const [mode, setMode] = useState<"base" | "detail">("base");
@@ -188,9 +207,15 @@ export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, 
     /* 详细资料载入（需求6：海拔默认第一条为参工年月） */
     try {
       const savedAlt = JSON.parse(localStorage.getItem(`gw_alt_${person.id}`) ?? "null");
-      setAltRows(Array.isArray(savedAlt) && savedAlt.length ? savedAlt : [{ ym: joinToYm(person.join), tier: 0 }]);
+      const validAlt = Array.isArray(savedAlt)
+        ? savedAlt.filter((r) => r && typeof r.ym === "string" && r.ym && typeof r.tier === "number")
+        : [];
+      setAltRows(validAlt.length ? validAlt : [{ ym: joinToYm(person.join), tier: 0 }]);
       setAssessRows(JSON.parse(localStorage.getItem(`gw_assess_${person.id}`) ?? "[]"));
     } catch { setAltRows([{ ym: joinToYm(person.join), tier: 0 }]); setAssessRows([]); }
+    /* 需求1：历史保存记录载入 */
+    try { setHistory(JSON.parse(localStorage.getItem(histKey(person.id)) ?? "[]")); } catch { setHistory([]); }
+    setHistOpen(false); setUnitOpen(false);
     setMode("base");
     setSortDir("asc"); setReasonFilter(null); setHlReason(null); setFilterOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -198,12 +223,14 @@ export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, 
 
   const set = (patch: Partial<CalcRunInput>) => setParams((p) => ({ ...p, ...patch }));
 
-  const switchType = (t: CalcType) => {
+  /* 需求2：参公类型按参公年份自动选择（用户不可点击） */
+  useEffect(() => {
     setParams((p) => {
-      const startYear = t === "pre2006" ? 2004 : 2007;
-      return { ...p, type: t, startYear, positionChanges: buildInitList(t, startYear, p.currentDutyIndex, p.currentDutyYear, p.educationIndex) };
+      const t: CalcType = p.startYear < 2006 ? "pre2006" : "post2006";
+      if (t === p.type) return p;
+      return { ...p, type: t, positionChanges: buildInitList(t, p.startYear, p.currentDutyIndex, p.currentDutyYear, p.educationIndex) };
     });
-  };
+  }, [params.startYear]);
 
   const onCurrentDutyChange = (idx: number) => {
     setParams((p) => {
@@ -222,10 +249,17 @@ export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, 
     try {
       const r = runCalculation(params);
       setResults(r);
-      const at = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+      const at = stampNow();
       setSavedAt(at);
       setFromSave(true);
       localStorage.setItem(saveKey(person.id), JSON.stringify({ params, results: r, savedAt: at }));
+      /* 需求1：写入历史保存记录（最多保留 30 条） */
+      try {
+        const prev: HistEntry[] = JSON.parse(localStorage.getItem(histKey(person.id)) ?? "[]");
+        const hist = [{ savedAt: at, params, results: r }, ...(Array.isArray(prev) ? prev : [])].slice(0, 30);
+        localStorage.setItem(histKey(person.id), JSON.stringify(hist));
+        setHistory(hist);
+      } catch { /* ignore */ }
       onToast("success", `已完成「${person.name}」测算并保存（级别 ${r.hero.levelGrade}）`);
       onSaved?.();
     } catch {
@@ -252,13 +286,20 @@ export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, 
 
   const wageNow = useMemo(() => (results ? Calculator.getSalary(results.finalLevel, results.finalGrade) : 0), [results]);
 
+  /* 需求2：参加工作年限（由参工时间年份推算，供五年浮动/学历固定/20年固定自动计算） */
+  const workYears = useMemo(() => {
+    const y = parseInt(person.join, 10);
+    return Number.isFinite(y) ? Math.max(0, new Date().getFullYear() - y) : 0;
+  }, [person.join]);
+
   const latestDutyIndex = useMemo(() => {
     if (results) return results.finalDutyIndex;
     const ch = params.positionChanges;
     return ch.length ? ch[ch.length - 1].dutyIndex : DUTY_VALUES[params.currentDutyIndex];
   }, [results, params.positionChanges, params.currentDutyIndex]);
   const dutyLabel = POLICY_CONFIG.getLabel(latestDutyIndex);
-  const displayPosition = person.position.replace(/（.*?）/g, "").trim() || dutyLabel;
+  /* 需求2：职务信息随测算结果刷新（有测算结果显示测算职务，否则显示档案职务） */
+  const displayPosition = results ? dutyLabel : (person.position.replace(/（.*?）/g, "").trim() || dutyLabel);
 
   /* ---------- 需求1：排序 + 筛选后的行 ---------- */
   const allRows = results?.evolution ?? [];
@@ -267,7 +308,12 @@ export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, 
   const displayRows = useMemo(() => {
     let rows = allRows;
     if (reasonFilter) rows = rows.filter((r) => reasonLabel(r.reason) === reasonFilter);
-    const sorted = [...rows].sort((a, b) => a.year.localeCompare(b.year));
+    /* 防御：year 异常时按字符串安全比较，防止 localeCompare 崩溃 */
+    const sorted = [...rows].sort((a, b) => {
+      const ya = typeof a?.year === "string" ? a.year : String(a?.year ?? "");
+      const yb = typeof b?.year === "string" ? b.year : String(b?.year ?? "");
+      return ya.localeCompare(yb);
+    });
     return sortDir === "desc" ? sorted.reverse() : sorted;
   }, [allRows, reasonFilter, sortDir]);
 
@@ -388,12 +434,35 @@ export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, 
             <span className="w-1.5 h-1.5 rounded-full" style={{ background: emp.dot }} />
             {person.employ}
           </span>
-          <span className="font-mono2 text-[11px] text-[var(--tx-3)] truncate hidden md:inline">[{person.unitId}] {unitName}</span>
+          {/* 需求7：点击单位名可修改单位 */}
+          <span className="relative hidden md:inline">
+            <button
+              onClick={() => { if (canEdit && onChangeUnit) setUnitOpen((v) => !v); }}
+              title={canEdit && onChangeUnit ? "点击修改单位" : undefined}
+              className={`font-mono2 text-[11px] truncate rounded px-1 -mx-1 transition ${canEdit && onChangeUnit ? "text-[var(--acc)] hover:bg-[var(--sel)]" : "text-[var(--tx-3)] cursor-default"}`}
+            >
+              [{person.unitId}] {unitName}
+            </button>
+            {unitOpen && canEdit && onChangeUnit && (
+              <>
+                <span className="fixed inset-0 z-[29]" onMouseDown={() => setUnitOpen(false)} />
+                <div className="absolute right-0 top-full mt-1 z-30 w-[200px] max-h-[240px] overflow-auto rounded-lg border border-[var(--line)] bg-[var(--bg-2)] shadow-[0_12px_32px_rgba(10,20,45,.28)] py-1 anim-fade">
+                  {units?.map((u) => (
+                    <button key={u.id} onClick={() => { setUnitOpen(false); if (u.id !== person.unitId) onChangeUnit(u.id); }}
+                      className={`w-full text-left px-2.5 py-1.5 text-[11px] hover:bg-[var(--hov)] transition flex items-center gap-1.5 ${u.id === person.unitId ? "text-[var(--acc)] font-semibold" : "text-[var(--tx-1)]"}`}>
+                      <span className="font-mono2 text-[10px] text-[var(--tx-3)]">[{u.id}]</span>
+                      <span className="truncate">{u.name}</span>
+                      {u.id === person.unitId && <Icon name="check" size={10} className="ml-auto shrink-0" />}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </span>
         </div>
 
         <div className="ml-auto flex items-center gap-1.5 shrink-0 flex-wrap">
-          <ToolBtn icon="search" label="查询" color="" onClick={() => onTool("query")} />
-          <span className="w-px h-4 bg-[var(--line)] mx-0.5" />
+          {/* 需求3：查询按钮已移至左侧人员列表检索框右侧 */}
           <ToolBtn icon="on" label="在职" color="border-[rgba(48,209,88,.55)] text-[#1f8f4d] dark:text-[#7ede99] bg-[rgba(48,209,88,.12)]"
             active={person.employ === "在职"} disabled={!canEdit} onClick={() => onTool("在职")} />
           <ToolBtn icon="retire" label="退休" color="border-[rgba(255,159,10,.55)] text-[#a26603] dark:text-[#ffbe69] bg-[rgba(255,159,10,.12)]"
@@ -421,9 +490,10 @@ export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, 
                 <CardHead icon="user" title="人员基本信息"
                   extra={<span className="font-mono2 text-[10px] text-[var(--tx-3)]">ID {String(person.id).padStart(4, "0")}</span>} />
                 <div className="p-3 flex flex-col gap-3">
-                  <div className="seg w-full">
-                    <button className={`seg-item flex-1 justify-center ${pre ? "active" : ""}`} onClick={() => switchType("pre2006")}>2006年前参公（套改）</button>
-                    <button className={`seg-item flex-1 justify-center ${!pre ? "active" : ""}`} onClick={() => switchType("post2006")}>2006年后参公</button>
+                  {/* 需求2：按参公年份自动选择，用户不可点击，样式不变 */}
+                  <div className="seg w-full" title="按参公年份自动选择">
+                    <button type="button" aria-disabled className={`seg-item flex-1 justify-center ${pre ? "active" : ""}`} style={{ cursor: "default" }}>2006年前参公（套改）</button>
+                    <button type="button" aria-disabled className={`seg-item flex-1 justify-center ${!pre ? "active" : ""}`} style={{ cursor: "default" }}>2006年后参公</button>
                   </div>
 
                   <div className="grid grid-cols-3 gap-x-3 gap-y-2">
@@ -517,11 +587,18 @@ export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, 
                         <span className="w-6 h-6 shrink-0 rounded-full hero-grad flex items-center justify-center text-[11px] font-bold text-white" style={{ animation: "none" }}>{idx + 1}</span>
                         <select className="field h-8 w-[92px] shrink-0 px-2 text-[12px] font-mono2" value={item.year} disabled={!canEdit}
                           onChange={(e) => setParams((p) => ({ ...p, positionChanges: p.positionChanges.map((r, i) => i === idx ? { ...r, year: Number(e.target.value) } : r) }))}>
-                          {years(1950, 2035).map((y) => <option key={y} value={y}>{y}年</option>)}
+                          {/* 需求3：年份选项不能低于2006 */}
+                          {years(2006, 2035).map((y) => <option key={y} value={y}>{y}年</option>)}
                         </select>
                         <select className="field h-8 flex-1 min-w-0 px-2 text-[12px]" value={pickerIndex(item.dutyIndex)} disabled={!canEdit}
                           onChange={(e) => setParams((p) => ({ ...p, positionChanges: p.positionChanges.map((r, i) => i === idx ? { ...r, dutyIndex: POSITION_PICKER_VALUES[Number(e.target.value)] } : r) }))}>
-                          {POSITION_PICKER_LABELS.map((l, i) => <option key={l} value={i}>{l}</option>)}
+                          {/* 需求3：职务与职级之间用虚线隔开 */}
+                          {POSITION_PICKER_LABELS.map((l, i) => (
+                            <React.Fragment key={l}>
+                              {i === DUTY_OPTIONS.length && <option value="sep" disabled>┈┈┈┈┈┈ 职级 ┈┈┈┈┈┈</option>}
+                              <option value={i}>{l}</option>
+                            </React.Fragment>
+                          ))}
                         </select>
                         <button title="删除此行" disabled={!canEdit}
                           onClick={() => setParams((p) => ({ ...p, positionChanges: p.positionChanges.filter((_, i) => i !== idx) }))}
@@ -561,6 +638,36 @@ export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, 
                     ) : (
                       <span className="text-[var(--tx-3)] flex items-center gap-1"><Icon name="info" size={11} />自动测算预览 · 点击「开始测算」保存</span>
                     )}
+                    {/* 需求1：撤回保存（历史保存时间选择） */}
+                    <span className="ml-auto relative shrink-0">
+                      <button onClick={() => setHistOpen((v) => !v)} title="撤回到某次历史保存"
+                        className="h-6 px-2 rounded-md border border-[var(--line)] bg-[var(--bg-2)] text-[10.5px] text-[var(--tx-3)] hover:text-[var(--tx-1)] hover:bg-[var(--hov)] transition flex items-center gap-1 active:scale-95">
+                        <Icon name="clock" size={11} />撤回保存
+                      </button>
+                      {histOpen && (
+                        <>
+                          <span className="fixed inset-0 z-[29]" onMouseDown={() => setHistOpen(false)} />
+                          <div className="absolute right-0 top-full mt-1 z-30 w-[252px] max-h-[220px] overflow-auto rounded-lg border border-[var(--line)] bg-[var(--bg-2)] shadow-[0_12px_32px_rgba(10,20,45,.28)] py-1 anim-fade">
+                            {history.length === 0 && (
+                              <p className="px-2.5 py-2 text-[11px] text-[var(--tx-3)]">暂无历史保存记录</p>
+                            )}
+                            {history.map((h, i) => (
+                              <button key={`${h.savedAt}_${i}`}
+                                onClick={() => {
+                                  setParams(h.params); setResults(h.results); setSavedAt(h.savedAt); setFromSave(true); setHistOpen(false);
+                                  try { localStorage.setItem(saveKey(person.id), JSON.stringify({ params: h.params, results: h.results, savedAt: h.savedAt })); } catch { /* ignore */ }
+                                  onToast("success", `已撤回至 ${h.savedAt} 的保存结果`);
+                                }}
+                                className="w-full text-left px-2.5 py-1.5 text-[11px] hover:bg-[var(--hov)] transition flex items-center gap-1.5 text-[var(--tx-1)]">
+                                <Icon name="clock" size={10} className="text-[var(--tx-3)] shrink-0" />
+                                <span className="font-mono2 truncate">{h.savedAt}</span>
+                                {h.results && <span className="ml-auto font-mono2 text-[10px] text-[var(--acc)] shrink-0">{h.results.hero.levelGrade}</span>}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -680,7 +787,7 @@ export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, 
           </div>
 
           {/* -------- 右列：当前工资 -------- */}
-          <SalaryPanel personId={person.id} results={results} latestDutyIndex={latestDutyIndex} canEdit={canEdit} onToast={onToast} altitudeSubsidy={altitudeSubsidy} zone={zone} />
+          <SalaryPanel personId={person.id} results={results} latestDutyIndex={latestDutyIndex} canEdit={canEdit} onToast={onToast} altitudeSubsidy={altitudeSubsidy} zone={zone} eduIndex={params.educationIndex} workYears={workYears} />
         </div>
       )}
 

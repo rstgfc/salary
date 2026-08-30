@@ -190,6 +190,32 @@ select.field { appearance: none; background-image: linear-gradient(45deg, transp
   position: sticky; top: 0; z-index: 10;
   background: var(--head);
   border-bottom: 1px solid var(--line);
-  font-size: 10.5px; font-weight: 500; color: var(--tx-2);
+  font-size: 12px; font-weight: 500; color: var(--tx-2);
   white-space: nowrap;
 }
+
+/* ================= 需求1：全局增大字号 =================
+   页面全部文字统一提升约 1~2px（原 9.5→11、10→11.5、10.5→12、
+   11→12.5、11.5→13、12→13.5、12.5→14、13→14.5、13.5→15、
+   14→15.5、15→16.5、16→17.5、17→18.5、18→20、19→21、22→24、26→28）。
+   Tailwind 任意值工具类位于 @layer utilities，非分层规则优先级更高，直接覆盖。 */
+.text-\[9\.5px\] { font-size: 11px; }
+.text-\[10px\] { font-size: 11.5px; }
+.text-\[10\.5px\] { font-size: 12px; }
+.text-\[11px\] { font-size: 12.5px; }
+.text-\[11\.5px\] { font-size: 13px; }
+.text-\[12px\] { font-size: 13.5px; }
+.text-\[12\.5px\] { font-size: 14px; }
+.text-\[13px\] { font-size: 14.5px; }
+.text-\[13\.5px\] { font-size: 15px; }
+.text-\[14px\] { font-size: 15.5px; }
+.text-\[15px\] { font-size: 16.5px; }
+.text-\[16px\] { font-size: 17.5px; }
+.text-\[17px\] { font-size: 18.5px; }
+.text-\[18px\] { font-size: 20px; }
+.text-\[19px\] { font-size: 21px; }
+.text-\[22px\] { font-size: 24px; }
+.text-\[26px\] { font-size: 28px; }
+
+body { font-size: 15px; }
+.seg-item { font-size: 13.5px; }

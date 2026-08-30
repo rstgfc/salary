@@ -86,11 +86,17 @@ CREATE TABLE IF NOT EXISTS wage_grade (
   amount INTEGER NOT NULL,
   PRIMARY KEY (era, lvl, step)
 );
+CREATE TABLE IF NOT EXISTS wage_rank (
+  era        TEXT NOT NULL,
+  rank_index INTEGER NOT NULL,
+  amount     REAL,
+  PRIMARY KEY (era, rank_index)
+);
 CREATE TABLE IF NOT EXISTS tibet_abs (
   duty_label TEXT PRIMARY KEY,
-  zone2 INTEGER NOT NULL DEFAULT 0,
-  zone3 INTEGER NOT NULL DEFAULT 0,
-  zone4 INTEGER NOT NULL DEFAULT 0
+  zone2 REAL NOT NULL DEFAULT 0,
+  zone3 REAL NOT NULL DEFAULT 0,
+  zone4 REAL NOT NULL DEFAULT 0
 );
 `;
 
@@ -113,7 +119,7 @@ export async function initDb(): Promise<void> {
     await flush();
   }
 
-  /* 工资标准表播种（含西藏特殊津贴绝对额对照表） */
+  /* 工资标准表播种（含西藏特殊津贴标准表） */
   try {
     const { seedWageTables } = await import("./wageStd");
     seedWageTables();

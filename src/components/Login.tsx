@@ -8,10 +8,57 @@ export interface Session {
   name: string;
 }
 
-const ACCOUNTS: Record<string, { password: string; session: Session }> = {
-  admin: { password: "admin123", session: { role: "admin", name: "管理员" } },
-  viewer: { password: "viewer123", session: { role: "viewer", name: "查阅用户" } },
+/* 需求4：账户体系（localStorage 持久化）—— password 为 null 表示新账户待首次登录设置密码 */
+export interface Account {
+  password: string | null;
+  role: Role;
+  name: string;
+}
+
+const BASE_ACCOUNTS: Record<string, Account> = {
+  admin: { password: "admin123", role: "admin", name: "管理员" },
+  viewer: { password: "viewer123", role: "viewer", name: "查阅用户" },
 };
+
+const LS_ACCOUNTS = "gw_accounts";
+
+/* 读取全部账户：基础账户 + 用户管理新增账户 */
+export function loadAccounts(): Record<string, Account> {
+  const merged: Record<string, Account> = { ...BASE_ACCOUNTS };
+  try {
+    const saved = JSON.parse(localStorage.getItem(LS_ACCOUNTS) ?? "null") as Record<string, Account> | null;
+    if (saved && typeof saved === "object") {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v && typeof v === "object" && !merged[k]) {
+          merged[k] = { password: typeof v.password === "string" ? v.password : null, role: v.role === "admin" ? "admin" : "viewer", name: v.name || k };
+        }
+      }
+    }
+  } catch { /* ignore */ }
+  return merged;
+}
+
+/* 需求4：新增账户（初始无密码，首次登录时输入的密码将成为账户密码） */
+export function addAccount(username: string, role: Role): boolean {
+  const key = username.trim().toLowerCase();
+  if (!key) return false;
+  const all = loadAccounts();
+  if (all[key]) return false;
+  all[key] = { password: null, role, name: username.trim() };
+  try { localStorage.setItem(LS_ACCOUNTS, JSON.stringify(all)); return true; } catch { return false; }
+}
+
+/* 首次登录设置密码并生效 */
+function setAccountPassword(key: string, pwd: string): boolean {
+  try {
+    const all = loadAccounts();
+    const acc = all[key];
+    if (!acc) return false;
+    all[key] = { ...acc, password: pwd };
+    localStorage.setItem(LS_ACCOUNTS, JSON.stringify(all));
+    return true;
+  } catch { return false; }
+}
 
 export function Login({ onLogin }: { onLogin: (s: Session) => void }) {
   const [user, setUser] = useState("");
@@ -21,14 +68,30 @@ export function Login({ onLogin }: { onLogin: (s: Session) => void }) {
 
   const submit = () => {
     const u = user.trim().toLowerCase();
-    const acc = ACCOUNTS[u];
-    if (acc && acc.password === pwd) {
-      onLogin(acc.session);
+    const acc = loadAccounts()[u];
+    const fail = () => {
+      setErr("用户名或密码不正确");
+      setShake(true);
+      setTimeout(() => setShake(false), 500);
+    };
+    if (!acc) { fail(); return; }
+    /* 需求4：新账户首次登录 —— 输入的密码成为该账户密码 */
+    if (acc.password === null) {
+      if (!pwd) {
+        setErr("新账户首次登录请输入密码，该密码将成为账户密码");
+        setShake(true);
+        setTimeout(() => setShake(false), 500);
+        return;
+      }
+      setAccountPassword(u, pwd);
+      onLogin({ role: acc.role, name: acc.name });
       return;
     }
-    setErr("用户名或密码不正确");
-    setShake(true);
-    setTimeout(() => setShake(false), 500);
+    if (acc.password === pwd) {
+      onLogin({ role: acc.role, name: acc.name });
+      return;
+    }
+    fail();
   };
 
   const quick = (name: string) => {

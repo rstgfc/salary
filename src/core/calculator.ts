@@ -302,15 +302,14 @@ export const DUTY_VALUES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 export const LOWER_DUTY_OPTIONS = ["无", ...DUTY_OPTIONS];
 export const LOWER_DUTY_VALUES = [0, ...DUTY_VALUES];
 
-/* 职务变动可选：职务 + 职级（与 buildPositionPickerOptions 一致，职级 101 起） */
+/* 职务变动可选：职务 + 职级（职级 101 起；需求3：职级从上而下为 二级科员 → 一级巡视员） */
 export const POSITION_PICKER_LABELS = [
   ...DUTY_OPTIONS,
-  "二级巡视员", "一级调研员", "二级调研员", "三级调研员", "四级调研员",
-  "一级主任科员", "二级主任科员", "三级主任科员", "四级主任科员",
-  "一级科员", "二级科员",
+  "二级科员", "一级科员", "四级主任科员", "三级主任科员", "二级主任科员", "一级主任科员",
+  "四级调研员", "三级调研员", "二级调研员", "一级调研员", "二级巡视员",
 ];
 export const POSITION_PICKER_VALUES = [
-  ...DUTY_VALUES, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111,
+  ...DUTY_VALUES, 111, 110, 109, 108, 107, 106, 105, 104, 103, 102, 101,
 ];
 
 export const RANK_LABELS: Record<number, string> = {

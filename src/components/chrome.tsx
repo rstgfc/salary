@@ -94,7 +94,7 @@ export function TitleBar({ theme, onTheme, onClose, onMin, onZoom }: {
 /* ============ 菜单栏 ============ */
 export type MenuKey =
   | "unit" | "person" | "allowance" | "query" | "recalc" | "rolling"
-  | "del" | "catalog" | "calc" | "register" | "help" | "exit";
+  | "del" | "catalog" | "calc" | "users" | "register" | "help" | "exit";
 
 const MENUS: { key: MenuKey; label: string; icon: IconName; danger?: boolean }[] = [
   { key: "unit", label: "单位管理", icon: "unit" },
@@ -106,23 +106,24 @@ const MENUS: { key: MenuKey; label: string; icon: IconName; danger?: boolean }[]
   { key: "del", label: "人员删除", icon: "trash" },
   { key: "catalog", label: "工资标准", icon: "catalog" },
   { key: "calc", label: "计算器", icon: "calc" },
+  { key: "users", label: "用户管理", icon: "users" },
   { key: "register", label: "注册", icon: "key" },
   { key: "help", label: "帮助", icon: "help" },
   { key: "exit", label: "退出", icon: "power", danger: true },
 ];
 
-const SEP_AFTER: MenuKey[] = ["person", "allowance", "rolling", "del", "calc", "help"];
+const SEP_AFTER: MenuKey[] = ["person", "allowance", "rolling", "del", "calc", "users", "help"];
 
 /* 需求5：左侧竖列图标栏（鼠标指向提示功能） */
 export function MenuRail({ onMenu }: { onMenu: (k: MenuKey) => void }) {
   return (
-    <div className="w-[70px] shrink-0 flex flex-col items-center gap-1 py-2.5 border-r border-[var(--line)] bg-[var(--bg-1)] overflow-y-auto overflow-x-hidden">
+    <div className="w-[80px] shrink-0 flex flex-col items-center gap-1 py-2.5 border-r border-[var(--line)] bg-[var(--bg-1)] overflow-y-auto overflow-x-hidden">
       {MENUS.map((m) => (
         <React.Fragment key={m.key}>
           {/* 需求4：图标放大 + 下方文字 + 炫酷悬停（上浮 / 发光 / 左侧光条 / 图标缩放） */}
           <button
             onClick={() => onMenu(m.key)}
-            className={`group relative w-[60px] shrink-0 rounded-xl py-2 flex flex-col items-center gap-1.5 transition-all duration-200 ease-out active:scale-90 hover:-translate-y-0.5 ${
+            className={`group relative w-[70px] shrink-0 rounded-xl py-2 flex flex-col items-center gap-1.5 transition-all duration-200 ease-out active:scale-90 hover:-translate-y-0.5 ${
               m.danger
                 ? "text-[#c2554f] hover:text-[#e0453a] hover:bg-[rgba(255,69,58,.12)] hover:shadow-[0_4px_18px_rgba(255,69,58,.28)]"
                 : "text-[var(--tx-2)] hover:text-[var(--acc)] hover:bg-[var(--sel)] hover:shadow-[0_4px_18px_rgba(10,132,255,.25)]"
@@ -132,10 +133,10 @@ export function MenuRail({ onMenu }: { onMenu: (k: MenuKey) => void }) {
               className="absolute left-0 top-1/2 -translate-y-1/2 h-0 w-[3px] rounded-r-full transition-all duration-300 group-hover:h-7"
               style={{ background: m.danger ? "#ff453a" : "var(--acc)" }}
             />
-            <Icon name={m.icon} size={21} className="transition-transform duration-200 group-hover:scale-110" />
-            <span className="text-[9.5px] leading-none font-medium whitespace-nowrap">{m.label}</span>
+            <Icon name={m.icon} size={24} className="transition-transform duration-200 group-hover:scale-110" />
+            <span className="text-[11.5px] leading-none font-medium whitespace-nowrap">{m.label}</span>
           </button>
-          {SEP_AFTER.includes(m.key) && <span className="w-9 h-px bg-[var(--line)] my-0.5 shrink-0" />}
+          {SEP_AFTER.includes(m.key) && <span className="w-10 h-px bg-[var(--line)] my-0.5 shrink-0" />}
         </React.Fragment>
       ))}
     </div>

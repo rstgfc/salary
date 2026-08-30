@@ -6,7 +6,8 @@ export type IconName =
   | "on" | "retire" | "stop" | "search" | "close" | "check"
   | "warn" | "info" | "lan" | "clock" | "chevR" | "copy" | "user"
   | "shield" | "sum" | "grid" | "plus" | "del" | "bolt" | "eye" | "sun" | "moon" | "download"
-  | "chat" | "fullscreen" | "sort" | "filter" | "mountain" | "clipboard" | "send" | "clip" | "folder" | "collapse" | "minimize";
+  | "chat" | "fullscreen" | "sort" | "filter" | "mountain" | "clipboard" | "send" | "clip" | "folder" | "collapse" | "minimize"
+  | "users";
 
 const P: Record<IconName, React.ReactNode> = {
   unit: (<><rect x="3" y="8" width="12" height="12" rx="1.5" /><path d="M15 11h4a1 1 0 0 1 1 1v8h-5M6.5 11.5v.01M9.5 11.5v.01M6.5 14.5v.01M9.5 14.5v.01M6.5 17.5v.01M9.5 17.5v.01M7 8V5.5A1.5 1.5 0 0 1 8.5 4h3A1.5 1.5 0 0 1 13 5.5V8" /></>),
@@ -54,6 +55,7 @@ const P: Record<IconName, React.ReactNode> = {
   folder: (<><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" /></>),
   collapse: (<><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" /></>),
   minimize: (<><path d="M5 12h14" /></>),
+  users: (<><circle cx="9" cy="8.5" r="3.5" /><path d="M2.5 20c1.1-3.3 3.6-5 6.5-5s5.4 1.7 6.5 5" /><circle cx="17" cy="9.5" r="2.6" /><path d="M17.5 15.2c2.2.4 3.6 1.9 4.2 4.3" /></>),
 };
 
 export function Icon({ name, size = 15, className = "", sw = 1.7 }: {

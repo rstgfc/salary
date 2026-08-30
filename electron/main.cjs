@@ -3,8 +3,9 @@
  *  职责：① 加载 dist/ 渲染主窗口（即 exe 界面）
  *        ② 内嵌本地 HTTP 服务，使局域网内浏览器可访问同一功能
  *        ③ 通过 /__lan.json 向界面提供真实局域网地址
+ *        ④ 开机自启（默认开启，帮助弹窗内可开关）
  * ========================================================================== */
-const { app, BrowserWindow, dialog } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain } = require("electron");
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
@@ -90,6 +91,43 @@ function startLanServer(win, onReady) {
   return () => server && server.close();
 }
 
+/* ---------- 开机自启（需求）：默认开启，帮助弹窗内可开关 ---------- */
+/* 写入注册表 HKCU\...\Run，无需管理员权限。便携版 exe 以 PORTABLE_EXECUTABLE_FILE
+ * （用户双击的真实路径）注册；每次启动按偏好重写一次，exe 移动位置后再次运行即自动修正。 */
+const exePathForStartup = () =>
+  process.env.PORTABLE_EXECUTABLE_FILE || app.getPath("exe");
+
+const autoStartPrefFile = () => path.join(app.getPath("userData"), "autostart.json");
+
+function readAutoStartPref() {
+  try {
+    const v = JSON.parse(fs.readFileSync(autoStartPrefFile(), "utf8"));
+    return typeof v.enabled === "boolean" ? v.enabled : true; // 无偏好文件 → 默认开启
+  } catch { return true; }
+}
+
+function applyAutoStart() {
+  if (!app.isPackaged) return; // 开发模式不注册
+  try {
+    app.setLoginItemSettings({ openAtLogin: readAutoStartPref(), path: exePathForStartup() });
+  } catch (err) {
+    console.error("[AUTOSTART] 设置开机自启失败:", err.message);
+  }
+}
+
+/* 渲染进程（帮助弹窗）读取 / 切换自启状态 */
+ipcMain.handle("autostart:get", () => ({
+  supported: app.isPackaged,
+  pref: readAutoStartPref(),
+  registered: app.getLoginItemSettings({ path: exePathForStartup() }).openAtLogin,
+}));
+ipcMain.handle("autostart:set", (_e, enabled) => {
+  try { fs.writeFileSync(autoStartPrefFile(), JSON.stringify({ enabled: !!enabled })); }
+  catch (err) { console.error("[AUTOSTART] 保存偏好失败:", err.message); }
+  applyAutoStart();
+  return { pref: readAutoStartPref() };
+});
+
 /* ---------- 主窗口 ---------- */
 function createWindow() {
   const win = new BrowserWindow({
@@ -100,7 +138,7 @@ function createWindow() {
     title: "公务员工资测算系统 V8.2",
     backgroundColor: "#e9edf3",
     autoHideMenuBar: true,
-    webPreferences: { contextIsolation: true, nodeIntegration: false },
+    webPreferences: { contextIsolation: true, nodeIntegration: false, preload: path.join(__dirname, "preload.cjs") },
   });
 
   const indexFile = path.join(DIST_DIR, "index.html");
@@ -141,7 +179,10 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  applyAutoStart(); // 开机自启（需求）：默认开启，可在帮助弹窗关闭
+  createWindow();
+});
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();

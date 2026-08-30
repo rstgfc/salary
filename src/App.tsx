@@ -4,10 +4,10 @@ import { MenuRail, MenuKey, StatusBar, Theme, TitleBar, Toast, ToastStack, UserS
 import { ChatWidget } from "./components/ChatWidget";
 import { PersonList } from "./components/PersonList";
 import { DetailPanel } from "./components/DetailPanel";
-import { Login, Session } from "./components/Login";
+import { Login, Session, loadAccounts } from "./components/Login";
 import {
   ConfirmDeleteModal, ExitModal, ExitScreen, HelpModal, PersonAddModal, QueryModal,
-  RecalcModal, RegisterModal, RollingModal, UnitModal,
+  RecalcModal, RegisterModal, RollingModal, UnitModal, UserManageModal,
 } from "./components/modals";
 import { AllowanceModal, CalcModal, CatalogModal } from "./components/tools";
 import { Icon } from "./components/icons";
@@ -18,7 +18,7 @@ import {
 
 type ModalKind =
   | "query" | "unit" | "person" | "allowance" | "recalc" | "rolling"
-  | "del" | "catalog" | "calc" | "register" | "help" | "exit" | null;
+  | "del" | "catalog" | "calc" | "users" | "register" | "help" | "exit" | null;
 
 interface Reg { code: string; at: string; }
 
@@ -131,6 +131,34 @@ export default function App() {
     return () => clearInterval(t);
   }, []);
 
+  /* 需求5：账户在线心跳（聊天窗口用户列表据此显示在线/离线） */
+  const userName = session?.name ?? "";
+  useEffect(() => {
+    if (!userName) return;
+    const KEY = "gw_user_presence";
+    const beat = () => {
+      try {
+        const now = Date.now();
+        const map = JSON.parse(localStorage.getItem(KEY) ?? "{}") as Record<string, number>;
+        map[userName] = now;
+        for (const k of Object.keys(map)) if (now - map[k] > 15000) delete map[k];
+        localStorage.setItem(KEY, JSON.stringify(map));
+      } catch { /* ignore */ }
+    };
+    beat();
+    const t = setInterval(beat, 5000);
+    return () => clearInterval(t);
+  }, [userName]);
+
+  /* 需求5：聊天用户列表（来自账户体系，用户新增后自动出现） */
+  const [chatUsers, setChatUsers] = useState<string[]>(() => Object.keys(loadAccounts()));
+  useEffect(() => {
+    const refresh = () => setChatUsers(Object.keys(loadAccounts()));
+    const t = setInterval(refresh, 5000);
+    window.addEventListener("storage", refresh);
+    return () => { clearInterval(t); window.removeEventListener("storage", refresh); };
+  }, []);
+
   /* ---------- 主题 ---------- */
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -213,6 +241,7 @@ export default function App() {
       case "catalog": setModal("catalog"); break;
       case "calc": setModal("calc"); break;
       case "register": setModal("register"); break;
+      case "users": if (requireEdit("用户管理")) setModal("users"); break;
       case "help": setModal("help"); break;
       case "exit": setModal("exit"); break;
       case "unit": if (requireEdit("增加单位")) setModal("unit"); break;
@@ -282,6 +311,14 @@ export default function App() {
     pushToast("success", `已删除单位 [${id}]`);
   };
 
+  /* 需求7：人员详情栏头点击单位名可修改单位 */
+  const changePersonUnit = (pid: number, unitId: string) => {
+    const p = persons.find((x) => x.id === pid);
+    const u = units.find((x) => x.id === unitId);
+    setPersons((arr) => arr.map((x) => (x.id === pid ? { ...x, unitId } : x)));
+    pushToast("success", `${p?.name ?? `编号${pid}`} 单位已变更为 [${unitId}] ${u?.name ?? ""}`);
+  };
+
   /* ---------- 新增人员（需求7） ---------- */
   const addPerson = (p: Person) => {
     setPersons((arr) => [...arr, p]);
@@ -290,6 +327,16 @@ export default function App() {
     pushToast("success", `已新增人员「${p.name}」（编号${p.id}），请核对参数后点击开始测算`);
   };
   const nextPersonId = useMemo(() => Math.max(0, ...persons.map((p) => p.id)) + 1, [persons]);
+
+  /* 需求4：人员导入（重新编号入账，并补充文件内缺失的单位） */
+  const importPersons = (payload: { persons: Person[]; units?: Unit[] }) => {
+    const incUnits = (payload.units ?? []).filter((u) => u && u.id && !units.some((x) => x.id === u.id));
+    let nid = nextPersonId;
+    const added = payload.persons.map((p) => ({ ...p, id: nid++ }));
+    if (incUnits.length) setUnits((arr) => [...arr, ...incUnits]);
+    setPersons((arr) => [...arr, ...added]);
+    pushToast("success", `已导入 ${added.length} 名人员${incUnits.length ? `，补充 ${incUnits.length} 个单位` : ""}`);
+  };
 
   /* ---------- 全部重算：核验（只读）→ 应用（重写演变表） ---------- */
   const applyRecalc = useCallback(() => {
@@ -400,6 +447,7 @@ export default function App() {
             onQuery={setQuery}
             units={units}
             tick={listTick}
+            onQueryModal={() => setModal("query")}
           />
         </aside>
 
@@ -425,6 +473,8 @@ export default function App() {
               onToast={pushToast}
               onDelete={requestDelete}
               onSaved={() => setListTick((t) => t + 1)}
+              units={units}
+              onChangeUnit={(uid) => changePersonUnit(selected.id, uid)}
             />
           ) : (
             <div className="flex-1 flex items-center justify-center text-[var(--tx-3)]">暂无人员，请通过「人员增加」菜单新增</div>
@@ -445,7 +495,8 @@ export default function App() {
 
       {/* ---------- 弹窗 ---------- */}
       {modal === "query" && (
-        <QueryModal persons={persons} units={units} onClose={() => setModal(null)} onLocate={locate} />
+        <QueryModal persons={persons} units={units} canEdit={canEdit} onClose={() => setModal(null)}
+          onLocate={locate} onToast={pushToast} onImport={importPersons} />
       )}
       {modal === "unit" && (
         <UnitModal units={units} persons={persons} canEdit={canEdit} onClose={() => setModal(null)}
@@ -473,11 +524,12 @@ export default function App() {
       {modal === "register" && (
         <RegisterModal machine={machine} registered={registered} onClose={() => setModal(null)} onRegister={onRegister} />
       )}
+      {modal === "users" && <UserManageModal onClose={() => setModal(null)} onToast={pushToast} />}
       {modal === "help" && <HelpModal onClose={() => setModal(null)} />}
       {modal === "exit" && <ExitModal onStay={() => setModal(null)} onExit={() => setExited(true)} />}
 
-      {/* 需求7：悬浮聊天（传入人员花名册用于私聊） */}
-      <ChatWidget user={session.name} userName={session.name} persons={persons} onToast={pushToast} />
+      {/* 需求7：悬浮聊天（传入账户用户列表用于私聊，需求5：左侧标签页展示所有用户） */}
+      <ChatWidget user={session.name} userName={session.name} users={chatUsers} onToast={pushToast} />
 
       <ToastStack toasts={toasts} onDismiss={(id) => setToasts((t) => t.filter((x) => x.id !== id))} />
     </div>

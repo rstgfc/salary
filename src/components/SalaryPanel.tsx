@@ -10,13 +10,46 @@ import { getTibetAbs, getTibetFactor } from "../core/wageStd";
 interface AddonItem { id: string; label: string; steps: number; unit: number; }
 interface AllowanceRow { id: string; label: string; detail: string; amount: number; }
 
+/* 需求2：加项默认值（高套/学历浮动按大中专以上学历默认，县以下提高默认0档） */
 const DEFAULT_ADDONS: AddonItem[] = [
   { id: "gaoTao", label: "高套", steps: 2, unit: 25 },
   { id: "xueLiFloat", label: "学历浮动", steps: 1, unit: 25 },
-  { id: "xueLiFixed", label: "学历固定", steps: 1, unit: 25 },
-  { id: "nian20", label: "20年固定", steps: 1, unit: 25 },
-  { id: "xianXiang", label: "县乡提高", steps: 1, unit: 25 },
+  { id: "fiveYear", label: "五年浮动", steps: 0, unit: 25 },
+  { id: "xueLiFixed", label: "学历固定", steps: 0, unit: 25 },
+  { id: "nian20", label: "20年固定", steps: 0, unit: 25 },
+  { id: "xianXiang", label: "县以下提高", steps: 0, unit: 25 },
 ];
+
+/* 需求2：档位上限（五年浮动/县以下提高最多1档；学历固定/20年固定最多4档，超过不再增加） */
+const ADDON_CAPS: Record<string, number> = { fiveYear: 1, xianXiang: 1, xueLiFixed: 4, nian20: 4 };
+/* 需求2：按规则自动计算的加项 */
+const AUTO_IDS = ["fiveYear", "xueLiFixed", "nian20"];
+/* 需求2：EDUCATION_OPTIONS 下标 ≤2（研究生/本科/专科）视为中专（大中专）以上学历 */
+const isAboveEdu = (eduIndex?: number) => (eduIndex ?? 3) <= 2;
+
+/* 需求2：规则档位 —— 中专以上学历满5年 → 五年浮动1档；每满8年+1档学历固定、每满20年+1档20年固定（各最多4档） */
+function ruleSteps(id: string, above: boolean, workYears: number): number {
+  switch (id) {
+    case "fiveYear": return above && workYears >= 5 ? 1 : 0;
+    case "xueLiFixed": return Math.min(4, Math.floor(workYears / 8));
+    case "nian20": return Math.min(4, Math.floor(workYears / 20));
+    default: return 0;
+  }
+}
+
+function defaultAddons(above: boolean, workYears: number): AddonItem[] {
+  return [
+    { id: "gaoTao", label: "高套", steps: above ? 2 : 0, unit: 25 },
+    { id: "xueLiFloat", label: "学历浮动", steps: above ? 1 : 0, unit: 25 },
+    { id: "fiveYear", label: "五年浮动", steps: ruleSteps("fiveYear", above, workYears), unit: 25 },
+    { id: "xueLiFixed", label: "学历固定", steps: ruleSteps("xueLiFixed", above, workYears), unit: 25 },
+    { id: "nian20", label: "20年固定", steps: ruleSteps("nian20", above, workYears), unit: 25 },
+    { id: "xianXiang", label: "县以下提高", steps: 0, unit: 25 },
+  ];
+}
+
+const clampSteps = (id: string, v: number) =>
+  Math.min(ADDON_CAPS[id] ?? 99, Math.max(0, Math.round(Number(v) || 0)));
 
 const DEFAULT_ALLOWANCES: AllowanceRow[] = [
   { id: "xzMulti", label: "西藏特殊津贴倍数", detail: "140%", amount: 500 },
@@ -28,20 +61,6 @@ const DEFAULT_ALLOWANCES: AllowanceRow[] = [
 const ADDON_OPTIONS = ["交通补贴", "通讯补贴", "餐补", "取暖补贴", "物业补贴", "年终绩效奖"];
 
 const itemsKey = (id: number) => `gw_salary_items_v1_${id}`;
-
-function loadItems(id: number): { addons: AddonItem[]; allowances: AllowanceRow[] } {
-  try {
-    const raw = localStorage.getItem(itemsKey(id));
-    if (raw) {
-      const saved = JSON.parse(raw);
-      return {
-        addons: Array.isArray(saved.addons) && saved.addons.length ? saved.addons : DEFAULT_ADDONS,
-        allowances: Array.isArray(saved.allowances) && saved.allowances.length ? saved.allowances : DEFAULT_ALLOWANCES,
-      };
-    }
-  } catch { /* ignore */ }
-  return { addons: DEFAULT_ADDONS, allowances: DEFAULT_ALLOWANCES };
-}
 
 /* ---------- 单行 ---------- */
 function Row({ label, detail, amount, bold, accent, editable, canEdit, onAmount }: {
@@ -77,7 +96,7 @@ function Divider() {
 }
 
 /* ---------- 当前工资面板（需求6） ---------- */
-export function SalaryPanel({ personId, results, latestDutyIndex, canEdit, onToast, altitudeSubsidy = 0, zone = "二类区" }: {
+export function SalaryPanel({ personId, results, latestDutyIndex, canEdit, onToast, altitudeSubsidy = 0, zone = "二类区", eduIndex, workYears = 0 }: {
   personId: number;
   results: CalcRunResult | null;
   latestDutyIndex: number;
@@ -85,26 +104,49 @@ export function SalaryPanel({ personId, results, latestDutyIndex, canEdit, onToa
   onToast: (t: "success" | "error" | "info", m: string) => void;
   altitudeSubsidy?: number; // 需求6：海拔折算工龄补贴
   zone?: WageZone;          // 单位工资类区：西藏特殊津贴倍数/绝对额按类区计算
+  eduIndex?: number;        // 需求2：学历下标（大中专以上默认高套2档/学历浮动1档）
+  workYears?: number;       // 需求2：参加工作年限（五年浮动/学历固定/20年固定自动计算）
 }) {
-  const [addons, setAddons] = useState<AddonItem[]>(DEFAULT_ADDONS);
+  const [addons, setAddons] = useState<AddonItem[]>(() => defaultAddons(isAboveEdu(eduIndex), workYears));
   const [allowances, setAllowances] = useState<AllowanceRow[]>(DEFAULT_ALLOWANCES);
   const [newItem, setNewItem] = useState("");
 
-  /* 切换人员时载入存档 */
+  /* 切换人员/学历/工龄时载入存档并按规则合并（需求2） */
   useEffect(() => {
-    const loaded = loadItems(personId);
-    setAddons(loaded.addons);
-    setAllowances(loaded.allowances);
+    const defs = defaultAddons(isAboveEdu(eduIndex), workYears);
+    try {
+      const raw = localStorage.getItem(itemsKey(personId));
+      if (raw) {
+        const saved = JSON.parse(raw);
+        const savedAddons: AddonItem[] = Array.isArray(saved.addons) ? saved.addons : [];
+        /* 规则项按公式重算；手动项沿用存档（旧版存档迁移：县乡提高→县以下提高并重置为0档） */
+        const merged = defs.map((d) => {
+          if (AUTO_IDS.includes(d.id)) return { ...d };
+          const s = savedAddons.find((a) => a && a.id === d.id);
+          if (!s) return d;
+          if (!saved.v2 && d.id === "xianXiang") return { ...d }; // 旧版默认1档，新规则默认0档
+          return { ...d, steps: clampSteps(d.id, s.steps) };
+        });
+        const ws = Array.isArray(saved.allowances) && saved.allowances.length ? saved.allowances : DEFAULT_ALLOWANCES;
+        setAddons(merged);
+        setAllowances(ws);
+        setNewItem("");
+        try { localStorage.setItem(itemsKey(personId), JSON.stringify({ addons: merged, allowances: ws, v2: true })); } catch { /* ignore */ }
+        return;
+      }
+    } catch { /* ignore */ }
+    setAddons(defs);
+    setAllowances(DEFAULT_ALLOWANCES.map((a) => ({ ...a })));
     setNewItem("");
-  }, [personId]);
+  }, [personId, eduIndex, workYears]);
 
   const persist = (a: AddonItem[], w: AllowanceRow[]) => {
-    try { localStorage.setItem(itemsKey(personId), JSON.stringify({ addons: a, allowances: w })); } catch { /* ignore */ }
+    try { localStorage.setItem(itemsKey(personId), JSON.stringify({ addons: a, allowances: w, v2: true })); } catch { /* ignore */ }
   };
 
   const setAddonSteps = (id: string, steps: number) => {
     setAddons((arr) => {
-      const next = arr.map((x) => (x.id === id ? { ...x, steps: Math.max(0, steps) } : x));
+      const next = arr.map((x) => (x.id === id ? { ...x, steps: clampSteps(id, steps) } : x));
       persist(next, allowances);
       return next;
     });
@@ -177,17 +219,17 @@ export function SalaryPanel({ personId, results, latestDutyIndex, canEdit, onToa
 
   return (
     <div className="w-[300px] xl:w-[320px] shrink-0 flex flex-col card-panel overflow-hidden">
-      {/* 头部：当前状态 */}
-      <div className="hero-grad rounded-t-[10px] px-3.5 py-3 text-white shrink-0" style={{ animation: "none" }}>
-        <p className="text-[9.5px] tracking-[2px] opacity-80">当前 {now.getFullYear()}年{now.getMonth() + 1}月</p>
-        <div className="mt-1.5 flex items-baseline gap-2 flex-wrap">
-          <span className="text-[14px] font-bold">职务：{dutyLabel}</span>
-        </div>
-        <div className="mt-1.5 flex items-baseline gap-1.5">
-          <span className="text-[11px] opacity-85">工资合计</span>
-          <span className="font-mono2 text-[22px] font-bold leading-none">{fmt(total)}</span>
-          <span className="text-[11px] opacity-85">元</span>
-        </div>
+      {/* 头部标题行（需求1：与其他栏标题行格式风格一致） */}
+      <div className="card-head flex items-center gap-2 px-3.5 h-9 rounded-t-[10px] shrink-0">
+        <span className="w-1 h-3.5 rounded-full bg-gradient-to-b from-[#0a84ff] to-[#5ac8fa]" />
+        <Icon name="sum" size={14} className="text-[var(--acc)]" />
+        <span className="text-[12.5px] font-semibold text-[var(--tx-1)] tracking-wide">应发工资</span>
+        <span className="ml-auto font-mono2 text-[10px] text-[var(--tx-3)]">当前 {now.getFullYear()}年{now.getMonth() + 1}月</span>
+      </div>
+      {/* 职务 + 工资合计摘要行 */}
+      <div className="shrink-0 flex items-center gap-2 px-3.5 py-2 border-b border-[var(--line)] bg-[var(--bg-2)]">
+        <span className="text-[11.5px] text-[var(--tx-2)]">职务：<b className="text-[var(--tx-1)] font-medium">{dutyLabel}</b></span>
+        <span className="ml-auto font-mono2 text-[12.5px] font-bold text-[var(--acc)]">{fmt(total)}元</span>
       </div>
 
       {/* 列表 */}
@@ -254,18 +296,13 @@ export function SalaryPanel({ personId, results, latestDutyIndex, canEdit, onToa
         </div>
 
         <Divider />
-
-        {/* 工资合计 */}
-        <div className="flex items-center gap-2 px-3 py-2.5 mx-2 mb-1.5 rounded-lg bg-gradient-to-r from-[rgba(10,132,255,.14)] to-[rgba(90,200,250,.08)] border border-[rgba(10,132,255,.35)]">
-          <Icon name="sum" size={15} className="text-[var(--acc)]" />
-          <span className="text-[13px] font-bold text-[var(--tx-1)]">工资合计</span>
-          <span className="ml-auto font-mono2 text-[17px] font-bold text-[var(--acc)]">{fmt(total)}元</span>
-        </div>
       </div>
 
-      {/* 底注 */}
-      <div className="shrink-0 px-3 py-2 border-t border-[var(--line)] bg-[var(--head)] text-[10px] text-[var(--tx-3)] leading-relaxed">
-        每档金额 = 当前级别一个档差（{fmt(gradeStep)}元）；小计档次 = 级别档 + 各加项档数合计。折算工龄补贴按海拔累计。
+      {/* 需求5：工资合计固定小框（替换原说明文字） */}
+      <div className="shrink-0 mx-2.5 mb-2.5 flex items-center gap-2 px-3 py-2.5 rounded-lg bg-gradient-to-r from-[rgba(10,132,255,.14)] to-[rgba(90,200,250,.08)] border border-[rgba(10,132,255,.35)]">
+        <Icon name="sum" size={15} className="text-[var(--acc)]" />
+        <span className="text-[13px] font-bold text-[var(--tx-1)]">工资合计</span>
+        <span className="ml-auto font-mono2 text-[17px] font-bold text-[var(--acc)]">{fmt(total)}元</span>
       </div>
     </div>
   );
