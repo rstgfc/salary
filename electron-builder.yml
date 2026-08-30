@@ -20,6 +20,7 @@ files:
 win:
   target:
     - target: nsis         # 安装包（可选安装路径）
+    
       arch: [x64]
     - target: portable     # 免安装单文件 exe（最适合拷贝测试）
       arch: [x64]

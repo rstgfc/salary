@@ -21,6 +21,40 @@ let persistUnits: (() => void) | null = null;
 const IDB_NAME = "gw_salary_store";
 const IDB_KEY = "sqlite_db";
 
+/* 桌面端原生桥（Electron preload 注入）：库二进制落盘 exe 同级 data\；浏览器端回退 IndexedDB */
+declare global {
+  interface Window {
+    gwNative?: {
+      dbRead?: () => Promise<Uint8Array | null>;
+      dbWrite?: (buf: Uint8Array) => Promise<boolean>;
+      fileSave?: (name: string, buf: Uint8Array) => Promise<{ storedName: string } | null>;
+      fileRead?: (storedName: string) => Promise<Uint8Array | null>;
+      fileDelete?: (storedName: string) => Promise<boolean>;
+      dataPaths?: () => Promise<{ dataDir: string; dbFile: string; filesDir: string } | null>;
+    };
+  }
+}
+const native = () => (typeof window !== "undefined" ? window.gwNative : undefined);
+
+async function loadDbBytes(): Promise<Uint8Array | null> {
+  const n = native();
+  if (n?.dbRead) {
+    const fromDisk = await n.dbRead().catch(() => null);
+    if (fromDisk) return fromDisk;
+    /* 磁盘无库而 IndexedDB 有旧库 → 一次性接管迁入磁盘 */
+    const legacy = await idbGet().catch(() => null);
+    if (legacy) { await n.dbWrite?.(legacy).catch(() => undefined); return legacy; }
+    return null;
+  }
+  return idbGet().catch(() => null);
+}
+
+async function saveDbBytes(buf: Uint8Array): Promise<void> {
+  const n = native();
+  if (n?.dbWrite) { await n.dbWrite(buf); return; }
+  try { await idbSet(buf); } catch { /* 私密模式等场景下降级为内存态 */ }
+}
+
 /* ---------------- IndexedDB 持久化 ---------------- */
 
 function idbOpen(): Promise<IDBDatabase> {
@@ -104,7 +138,7 @@ export async function initDb(): Promise<void> {
   if (db) return;
   const SQL = await initSqlJs({ locateFile: () => wasmUrl });
 
-  const saved = await idbGet().catch(() => null);
+  const saved = await loadDbBytes();
   db = saved ? new SQL.Database(saved) : new SQL.Database();
   db.run(SCHEMA);
   /* 兼容旧库：若 units 表无 zone 列则补充 */
@@ -151,7 +185,7 @@ export const isDbReady = () => !!db;
 async function flush(): Promise<void> {
   if (!db) return;
   try {
-    await idbSet(db.export());
+    await saveDbBytes(db.export());
   } catch {
     /* 私密模式等场景下降级为内存态，功能不受影响 */
   }

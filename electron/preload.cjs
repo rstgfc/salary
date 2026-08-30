@@ -8,4 +8,12 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("gwNative", {
   autostartGet: () => ipcRenderer.invoke("autostart:get"),
   autostartSet: (enabled) => ipcRenderer.invoke("autostart:set", enabled),
+  dbRead: () => ipcRenderer.invoke("db:read"),
+  dbWrite: (buf) => ipcRenderer.invoke("db:write", buf),
+  fileSave: (name, buf) => ipcRenderer.invoke("file:save", name, buf),
+  fileRead: (storedName) => ipcRenderer.invoke("file:read", storedName),
+  fileDelete: (storedName) => ipcRenderer.invoke("file:delete", storedName),
+  dataPaths: () => ipcRenderer.invoke("data:paths"),
+  kvRead: () => ipcRenderer.invoke("kv:read"),
+  kvWrite: (obj) => ipcRenderer.invoke("kv:write", obj),
 });

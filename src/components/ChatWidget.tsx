@@ -15,7 +15,8 @@ interface Msg {
   text?: string;
   fileName?: string;
   fileSize?: number;
-  fileData?: string;   // dataURL
+  fileData?: string;   // 浏览器端 dataURL
+  storedName?: string; // 桌面端 data\files\ 内落盘文件名
   time: number;
 }
 
@@ -25,7 +26,8 @@ interface SharedFile {
   ownerName: string;
   name: string;
   size: number;
-  dataUrl: string;
+  dataUrl?: string;
+  storedName?: string;
   time: number;
 }
 
@@ -61,6 +63,48 @@ const fmtTime = (t: number) => {
 };
 
 const uid = () => `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
+const nativeFs = () => (typeof window !== "undefined" ? window.gwNative ?? null : null);
+async function downloadStored(storedName: string, name: string): Promise<boolean> {
+  const n = nativeFs();
+  if (!n?.fileRead) return false;
+  const buf = await n.fileRead(storedName).catch(() => null);
+  if (!buf) return false;
+  const url = URL.createObjectURL(new Blob([buf as unknown as BlobPart]));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  return true;
+}
+
+/* 局域网文件服务：同源 HTTP 上传/列表（Electron 内嵌服务器）；桌面端优先走 gwNative IPC */
+const isNativeFs = () => !!nativeFs()?.fileSave;
+
+async function serverUpload(f: File, meta: { id: string; owner: string; ownerName: string; time: number }): Promise<{ storedName: string; size: number } | null> {
+  try {
+    const q = new URLSearchParams({ name: f.name, id: meta.id, owner: meta.owner, ownerName: meta.ownerName, time: String(meta.time) });
+    const r = await fetch(`/upload?${q.toString()}`, { method: "POST", body: f });
+    if (!r.ok) return null;
+    const d = (await r.json().catch(() => null)) as { success?: boolean; storedName?: string; size?: number } | null;
+    return d?.success && d.storedName ? { storedName: d.storedName, size: d.size ?? f.size } : null;
+  } catch { return null; }
+}
+
+/* 以服务器索引为准合并共享空间列表（使局域网各端与桌面端互相可见；仅落盘文件走索引） */
+async function mergeServerFiles(local: SharedFile[]): Promise<SharedFile[] | null> {
+  try {
+    const r = await fetch("/file-list");
+    if (!r.ok) return null;
+    const remote = (await r.json().catch(() => null)) as SharedFile[] | null;
+    if (!Array.isArray(remote)) return null;
+    const merged = [...local.filter((f) => !f.storedName), ...remote.filter((x) => x && x.storedName)];
+    if (JSON.stringify(merged) === JSON.stringify(local)) return null;
+    save(FILE_KEY, merged);
+    return merged;
+  } catch { return null; }
+}
 
 /* 需求5：换一种色调 —— 聊天窗口整体改用青绿色调 */
 const CHAT_ICON_GRAD = "linear-gradient(135deg,#0d9488,#2fd4bd)";
@@ -115,7 +159,7 @@ export function ChatWidget({ user, userName, users, onToast }: {
   const [msgs, setMsgs] = useState<Msg[]>(() => load<Msg[]>(MSG_KEY, []));
   const [files, setFiles] = useState<SharedFile[]>(() => load<SharedFile[]>(FILE_KEY, []));
   const [draft, setDraft] = useState("");
-  const [pendingFile, setPendingFile] = useState<{ name: string; size: number; dataUrl: string } | null>(null);
+  const [pendingFile, setPendingFile] = useState<{ name: string; size: number; dataUrl?: string; storedName?: string } | null>(null);
 
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -149,7 +193,9 @@ export function ChatWidget({ user, userName, users, onToast }: {
   /* ---------- 刷新消息/文件（跨账号、跨标签页；顺带驱动在线状态刷新） ---------- */
   const reload = useCallback(() => {
     setMsgs(load<Msg[]>(MSG_KEY, []));
-    setFiles(load<SharedFile[]>(FILE_KEY, []));
+    const local = load<SharedFile[]>(FILE_KEY, []);
+    setFiles(local);
+    mergeServerFiles(local).then((m) => { if (m) setFiles(m); });
   }, []);
   useEffect(() => {
     reload();
@@ -193,7 +239,11 @@ export function ChatWidget({ user, userName, users, onToast }: {
     const m: Msg = { id: uid(), user, userName, time: Date.now() };
     if (activeUser !== null) m.to = activeUser;
     if (text) m.text = text;
-    if (pendingFile) { m.fileName = pendingFile.name; m.fileSize = pendingFile.size; m.fileData = pendingFile.dataUrl; }
+    if (pendingFile) {
+      m.fileName = pendingFile.name; m.fileSize = pendingFile.size;
+      if (pendingFile.dataUrl) m.fileData = pendingFile.dataUrl;
+      if (pendingFile.storedName) m.storedName = pendingFile.storedName;
+    }
     const next = [...msgs, m];
     if (!save(MSG_KEY, next)) { onToast("error", "发送失败：本地存储已满，请减小文件体积"); return; }
     setMsgs(next);
@@ -201,10 +251,64 @@ export function ChatWidget({ user, userName, users, onToast }: {
     setPendingFile(null);
   };
 
-  const pickFile = (e: React.ChangeEvent<HTMLInputElement>, toShared: boolean) => {
+  /* ---------- 删除共享空间文件（仅所有者可删） ---------- */
+  const deleteFile = (f: SharedFile) => {
+    if (f.owner !== user) { onToast("error", "仅文件上传者可删除此文件"); return; }
+    if (!window.confirm(`确定删除「${f.name}」？此操作不可恢复。`)) return;
+    const next = files.filter((x) => x.id !== f.id);
+    if (!save(FILE_KEY, next)) { onToast("error", "删除失败"); return; }
+    if (f.storedName) {
+      if (isNativeFs()) nativeFs()?.fileDelete?.(f.storedName); // 桌面端直删磁盘
+      fetch("/file-delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ storedName: f.storedName }) }).catch(() => undefined); // 同步删除服务端索引
+    }
+    setFiles(next);
+    onToast("success", `已删除「${f.name}」`);
+  };
+
+  const pickFile = async (e: React.ChangeEvent<HTMLInputElement>, toShared: boolean) => {
     const f = e.target.files?.[0];
     e.target.value = "";
     if (!f) return;
+    const n = nativeFs();
+    /* 聊天附件（桌面端）：IPC 直存 data\files\，无大小限制 */
+    if (n?.fileSave && !toShared) {
+      const buf = new Uint8Array(await f.arrayBuffer());
+      const saved = await n.fileSave(f.name, buf).catch(() => null);
+      if (!saved) { onToast("error", "发送失败：写入数据目录失败"); return; }
+      setPendingFile({ name: f.name, size: f.size, storedName: saved.storedName });
+      return;
+    }
+    /* 共享空间 / 局域网浏览器：HTTP 上传到服务器（落 exe 同级 data\files\，所有端可见） */
+    if (toShared || !n?.fileSave) {
+      const id = uid();
+      const up = await serverUpload(f, { id, owner: user, ownerName: userName, time: Date.now() });
+      if (up) {
+        if (toShared) {
+          const sf: SharedFile = { id, owner: user, ownerName: userName, name: f.name, size: up.size, storedName: up.storedName, time: Date.now() };
+          setFiles((prev) => (prev.some((x) => x.storedName === sf.storedName) ? prev : [...prev, sf]));
+          onToast("success", `已上传「${f.name}」到共享空间`);
+        } else {
+          setPendingFile({ name: f.name, size: up.size, storedName: up.storedName });
+        }
+        return;
+      }
+      /* 服务器不可达 → 桌面端回退 IPC 直存 */
+      if (n?.fileSave) {
+        const buf = new Uint8Array(await f.arrayBuffer());
+        const saved = await n.fileSave(f.name, buf).catch(() => null);
+        if (!saved) { onToast("error", "上传失败：写入数据目录失败"); return; }
+        if (toShared) {
+          const sf: SharedFile = { id, owner: user, ownerName: userName, name: f.name, size: f.size, storedName: saved.storedName, time: Date.now() };
+          const next = [...files, sf];
+          if (!save(FILE_KEY, next)) { onToast("error", "上传失败：本地存储已满"); return; }
+          setFiles(next);
+          onToast("success", `已上传「${f.name}」到共享空间`);
+        } else {
+          setPendingFile({ name: f.name, size: f.size, storedName: saved.storedName });
+        }
+        return;
+      }
+    }
     if (f.size > MAX_FILE) { onToast("error", `文件过大（限 ${fmtSize(MAX_FILE)} 以内）`); return; }
     const reader = new FileReader();
     reader.onload = () => {
@@ -355,7 +459,16 @@ export function ChatWidget({ user, userName, users, onToast }: {
                     {m.text}
                     {m.fileName && (
                       <a
-                        href={m.fileData} download={m.fileName}
+                        href={m.storedName && !isNativeFs()
+                          ? `/files/${encodeURIComponent(m.storedName)}?name=${encodeURIComponent(m.fileName ?? "")}`
+                          : (m.fileData ?? "#")}
+                        download={m.fileName}
+                        onClick={(e) => {
+                          if (m.storedName && isNativeFs()) {
+                            e.preventDefault();
+                            downloadStored(m.storedName, m.fileName!).then((ok) => { if (!ok) onToast("error", "文件读取失败"); });
+                          }
+                        }}
                         className={`mt-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] transition ${myMsgs(m) ? "bg-white/15 hover:bg-white/25 text-white" : "bg-[var(--bg-2)] hover:bg-[var(--hov)] text-[var(--acc)] border border-[var(--line)]"}`}
                       >
                         <Icon name="clip" size={13} />
@@ -427,10 +540,19 @@ export function ChatWidget({ user, userName, users, onToast }: {
                 <p className="text-[12px] text-[var(--tx-1)] truncate">{f.name}</p>
                 <p className="text-[10px] text-[var(--tx-3)]">{f.ownerName} · {fmtSize(f.size)} · {fmtTime(f.time)}</p>
               </div>
-              <a href={f.dataUrl} download={f.name} title="下载"
+              <a
+                href={f.storedName
+                  ? `/files/${encodeURIComponent(f.storedName)}?name=${encodeURIComponent(f.name)}`
+                  : (f.dataUrl ?? "#")}
+                download={f.name} title="下载"
                 className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--acc)] hover:bg-[var(--sel)] transition shrink-0">
                 <Icon name="download" size={15} />
               </a>
+              <button onClick={() => deleteFile(f)} title={f.owner === user ? "删除文件" : "仅上传者可删除"}
+                disabled={f.owner !== user}
+                className="w-7 h-7 rounded-md flex items-center justify-center transition shrink-0 disabled:opacity-30 disabled:pointer-events-none text-[#ff453a] hover:bg-[rgba(255,69,58,.12)]">
+                <Icon name="trash" size={14} />
+              </button>
             </div>
           ))}
         </div>
