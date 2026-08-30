@@ -484,7 +484,7 @@ export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, 
           {/* -------- 左列 -------- */}
           <div className="flex-1 min-w-0 flex flex-col gap-3">
             {/* 上部：两栏（基本信息 + 职务变化） */}
-            <div className="shrink-0 grid grid-cols-1 md:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)] gap-3 items-start">
+            <div className="shrink-0 grid grid-cols-1 md:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)] gap-3">
               {/* ---- 人员基本信息 ---- */}
               <div className="card-panel overflow-hidden">
                 <CardHead icon="user" title="人员基本信息"
@@ -541,47 +541,46 @@ export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, 
                         <button onClick={() => setDeductOpen(false)} className="ml-auto text-[var(--tx-3)] hover:text-[var(--tx-1)] transition" title="收起"><Icon name="close" size={12} /></button>
                       </div>
                     )}
-
-                    <div className="grid grid-cols-2 gap-2 mt-2">
-                      {pre && (
-                        <>
-                          <label className="block text-[10px] text-[var(--tx-3)]">2006时任职务
-                            <select className={sel + " mt-0.5"} value={params.currentDutyIndex} disabled={!canEdit}
-                              onChange={(e) => onCurrentDutyChange(Number(e.target.value))}>
-                              {DUTY_OPTIONS.map((o, i) => <option key={o} value={i}>{o}</option>)}
-                            </select>
-                          </label>
-                          <label className="block text-[10px] text-[var(--tx-3)]">任职时间
-                            <select className={sel + " font-mono2 mt-0.5"} value={params.currentDutyYear} disabled={!canEdit}
-                              onChange={(e) => set({ currentDutyYear: Number(e.target.value) })}>
-                              {years(1950, 2006).map((y) => <option key={y} value={y}>{y}年</option>)}
-                            </select>
-                          </label>
-                          <label className="block text-[10px] text-[var(--tx-3)]">低一职务
-                            <select className={sel + " mt-0.5"} value={params.lowerDutyIndex} disabled={!canEdit}
-                              onChange={(e) => set({ lowerDutyIndex: Number(e.target.value) })}>
-                              {LOWER_DUTY_OPTIONS.map((o, i) => <option key={o} value={i}>{o}</option>)}
-                            </select>
-                          </label>
-                          <label className="block text-[10px] text-[var(--tx-3)]">任职时间
-                            <select className={sel + " font-mono2 mt-0.5"} value={params.lowerDutyYear} disabled={!canEdit}
-                              onChange={(e) => set({ lowerDutyYear: Number(e.target.value) })}>
-                              {years(1950, 2006).map((y) => <option key={y} value={y}>{y}年</option>)}
-                            </select>
-                          </label>
-                        </>
-                      )}
-                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* ---- 职务变化 + 测算 ---- */}
-              <div className="card-panel overflow-hidden flex flex-col">
+              {/* ---- 职务变化 + 测算（高度与「人员基本信息」一致，列表内部滚动） ---- */}
+              <div className="card-panel overflow-hidden relative min-h-[300px]">
+                <div className="absolute inset-0 flex flex-col">
                 <CardHead icon="rolling" title="职务变化情况"
                   extra={<span className="font-mono2 text-[10px] px-1.5 py-px rounded-full bg-[rgba(48,209,88,.1)] border border-[rgba(48,209,88,.35)] text-[#1f8f4d] dark:text-[#7ede99]">{params.positionChanges.length} 条</span>} />
-                <div className="p-3 flex-1 flex flex-col gap-2">
-                  <div className="flex flex-col gap-2">
+                <div className="p-3 flex-1 min-h-0 flex flex-col gap-2.5">
+                  <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 pr-1">
+                    {/* 2006年前参公套改参数（纳入滚动范围；窗口宽度足够时一行显示） */}
+                    {pre && (
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 shrink-0">
+                        <label className="block text-[10px] text-[var(--tx-3)]">2006时任职务
+                          <select className={sel + " mt-0.5"} value={params.currentDutyIndex} disabled={!canEdit}
+                            onChange={(e) => onCurrentDutyChange(Number(e.target.value))}>
+                            {DUTY_OPTIONS.map((o, i) => <option key={o} value={i}>{o}</option>)}
+                          </select>
+                        </label>
+                        <label className="block text-[10px] text-[var(--tx-3)]">任职时间
+                          <select className={sel + " font-mono2 mt-0.5"} value={params.currentDutyYear} disabled={!canEdit}
+                            onChange={(e) => set({ currentDutyYear: Number(e.target.value) })}>
+                            {years(1950, 2006).map((y) => <option key={y} value={y}>{y}年</option>)}
+                          </select>
+                        </label>
+                        <label className="block text-[10px] text-[var(--tx-3)]">低一职务
+                          <select className={sel + " mt-0.5"} value={params.lowerDutyIndex} disabled={!canEdit}
+                            onChange={(e) => set({ lowerDutyIndex: Number(e.target.value) })}>
+                            {LOWER_DUTY_OPTIONS.map((o, i) => <option key={o} value={i}>{o}</option>)}
+                          </select>
+                        </label>
+                        <label className="block text-[10px] text-[var(--tx-3)]">任职时间
+                          <select className={sel + " font-mono2 mt-0.5"} value={params.lowerDutyYear} disabled={!canEdit}
+                            onChange={(e) => set({ lowerDutyYear: Number(e.target.value) })}>
+                            {years(1950, 2006).map((y) => <option key={y} value={y}>{y}年</option>)}
+                          </select>
+                        </label>
+                      </div>
+                    )}
                     {params.positionChanges.map((item, idx) => (
                       <div key={idx} className="flex items-center gap-2">
                         <span className="w-6 h-6 shrink-0 rounded-full hero-grad flex items-center justify-center text-[11px] font-bold text-white" style={{ animation: "none" }}>{idx + 1}</span>
@@ -615,7 +614,7 @@ export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, 
                     </button>
                   </div>
 
-                  <div className="mt-auto pt-2.5 border-t border-dashed border-[var(--line)] flex items-center gap-2.5">
+                  <div className="shrink-0 pt-2.5 border-t border-dashed border-[var(--line)] flex items-center gap-2.5">
                     <button onClick={doCalculate} disabled={!canEdit}
                       className="flex-1 h-9 rounded-lg hero-grad text-[13px] font-semibold text-white tracking-wide shadow-[0_6px_18px_rgba(10,132,255,.3)] transition-all hover:brightness-110 active:scale-[.98] flex items-center justify-center gap-1.5 disabled:opacity-35 disabled:pointer-events-none"
                       style={{ animation: "none" }}>
@@ -630,7 +629,7 @@ export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, 
                     </div>
                   </div>
 
-                  <div className="text-[10.5px] flex items-center gap-1.5">
+                  <div className="shrink-0 text-[10.5px] flex items-center gap-1.5">
                     {fromSave && savedAt ? (
                       <span className="text-[#1f8f4d] dark:text-[#7ede99] flex items-center gap-1"><Icon name="check" size={11} />已保存测算结果 · {savedAt}，下次进入自动载入</span>
                     ) : fromSave ? (
@@ -647,7 +646,7 @@ export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, 
                       {histOpen && (
                         <>
                           <span className="fixed inset-0 z-[29]" onMouseDown={() => setHistOpen(false)} />
-                          <div className="absolute right-0 top-full mt-1 z-30 w-[252px] max-h-[220px] overflow-auto rounded-lg border border-[var(--line)] bg-[var(--bg-2)] shadow-[0_12px_32px_rgba(10,20,45,.28)] py-1 anim-fade">
+                          <div className="absolute right-0 bottom-full mb-1 z-30 w-[252px] max-h-[220px] overflow-auto rounded-lg border border-[var(--line)] bg-[var(--bg-2)] shadow-[0_12px_32px_rgba(10,20,45,.28)] py-1 anim-fade">
                             {history.length === 0 && (
                               <p className="px-2.5 py-2 text-[11px] text-[var(--tx-3)]">暂无历史保存记录</p>
                             )}
@@ -669,6 +668,7 @@ export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, 
                       )}
                     </span>
                   </div>
+                </div>
                 </div>
               </div>
             </div>

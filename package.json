@@ -1,4 +1,7 @@
 {
+  "version": "1.0.0",
+"description": "机关事业单位工资测算",
+"author": "且听风吟",
   "name": "sandbox-workspace",
   "private": true,
   "type": "module",
@@ -33,6 +36,7 @@
     "@types/uuid": "^9.0.7",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^44.0.0",
+    "electron-builder": "^26.15.3",
     "tailwindcss": "^4.1.7",
     "typescript": "^5.7.0",
     "vite": "^6.3.5"
