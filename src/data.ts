@@ -27,6 +27,7 @@ export interface TaogaiRow {
 export interface Person {
   id: number;
   name: string;
+  idCard?: string | null;     // 身份证号（非必填，往返一致性/查重的关键输入项）
   gender: "男" | "女";
   identity: string;
   leader: string;
@@ -323,18 +324,23 @@ export function yearOf(dateStr: string): number {
 /** 级别显示格式：18.7 → 18-7（需求3，统一以连字符展示） */
 export const fmtLevel = (s: string) => (s ? s.replace(/^(\d+)\.(\d+)/, "$1-$2") : s);
 
-/** 由「人员增加」弹窗创建的人员对象（需求4：不填职务，由职务变化情况取最新值） */
+/** 由「人员增加」弹窗创建的人员对象（需求4：不填职务，由职务变化情况取最新值）；导入兜底时允许仅传 id/name/unitId，其余走默认值 */
 export function makePerson(p: {
-  id: number; name: string; gender: "男" | "女"; identity: string;
-  unitId: string; birth: string; join: string;
-  startYear: number; isPre2006: boolean;
+  id: number; name: string; idCard?: string | null;
+  gender?: "男" | "女"; identity?: string;
+  unitId: string; birth?: string; join?: string;
+  startYear?: number; isPre2006?: boolean;
+  edu?: string; tag?: string; employ?: Employ; position?: string;
+  gap?: number; unq?: string;
 }): Person {
   return {
-    id: p.id, name: p.name, gender: p.gender, identity: p.identity, leader: "",
-    birth: p.birth, edu: "大学本科毕业", studyYears: 0,
-    tag: p.isPre2006 ? "普通工改" : "新考录",
-    employ: "在职", unitId: p.unitId, position: "", // 职务由测算时的职务变化情况最新值确定
-    join: p.join, gap: 0, unq: "无考核记录", tYears: 0,
+    id: p.id, name: p.name, idCard: p.idCard ?? null,
+    gender: p.gender ?? "男", identity: p.identity ?? "", leader: "",
+    birth: p.birth ?? "", edu: p.edu ?? "大学本科毕业", studyYears: 0,
+    tag: p.tag ?? (p.isPre2006 ? "普通工改" : "新考录"),
+    employ: p.employ ?? "在职", unitId: p.unitId,
+    position: p.position ?? "", // 职务由测算时的职务变化情况最新值确定
+    join: p.join ?? "", gap: p.gap ?? 0, unq: p.unq ?? "无考核记录", tYears: 0,
     curType: "待测算",
     tgLabels: ["按现职套", "按低职套", "按学历套"],
     tgNow: { result: "—", note: "待测算" },
@@ -343,3 +349,381 @@ export function makePerson(p: {
     history: [],
   };
 }
+
+/* ========================================================================== */
+/*  【Spec: person-import-export-inputs-only】                                 */
+/*  输入项集中类型定义 + 纯函数：采集/回写 PersonInputs 快照（FR-1/FR-2/NFR-4）  */
+/* ========================================================================== */
+
+/** 测算类型（与 calculator.ts 保持同构，避免循环引用） */
+export type SnapshotCalcType = "pre2006" | "post2006";
+
+/** 职务变化快照（与 calculator.ts PosChange 保持同构） */
+export interface SnapshotPosChange {
+  year: number;
+  dutyIndex: number;
+  reason: string;
+  isInitial?: boolean;
+}
+
+/** 测算参数快照（ ≡ Omit<CalcRunInput,'endYear'> ） — 独立定义避免 data.ts↔calculator.ts 循环依赖 */
+export interface CalcParamsSnapshot {
+  type: SnapshotCalcType;
+  startYear: number;
+  educationIndex: number;
+  deductYears: number;
+  currentDutyIndex: number;
+  currentDutyYear: number;
+  lowerDutyIndex: number;
+  lowerDutyYear: number;
+  positionChanges: SnapshotPosChange[];
+}
+
+/** 海拔变动行（原先定义在 DetailPanel.tsx） */
+export interface AltRow {
+  ym: string;                    // 开始年月 "YYYY-MM"
+  tier: number;                  // 海拔档次 0-3（ALT_TIERS 下标）
+  type?: "month" | "year";       // 保留扩展
+}
+
+/** 考核行（原先定义在 DetailPanel.tsx） */
+export interface AssessRow {
+  year: number;
+  result: string;                // "优秀|称职|基本称职|不称职|不定等次"
+}
+
+/** 档次参数（高套/学历浮动/…；原先定义在 SalaryPanel.tsx / modals.tsx 同名） */
+export interface AddonItem {
+  id: string;                    // "gaoTao" / "xueLiFloat" / "fiveYear" / "xueLiFixed" / "nian20" / "xianXiang" / 自定义
+  label: string;                 // 中文展示名
+  steps: number;                 // 用户档位（核心输入；金额由 steps * unit 推导，不在快照中持久化）
+  unit: number;                  // 常量：25 元/档，允许后续政策调档时不改变 inputs
+}
+
+/** 津贴补贴行（原先定义在 SalaryPanel.tsx / modals.tsx 同名） */
+export interface AllowanceRow {
+  id: string;                    // 内置："xzMulti" / "xzAbs" / "zheSuan" / "zhuFang"；自定义：custom_xxx
+  label: string;                 // 中文名称
+  detail: string;                // 备注/公式描述（如"140%"）
+  amount: number;                // 用户确认的金额（核心输入）
+}
+
+/** FR-1：全部 7 类用户填写数据的统一快照容器 */
+export interface PersonInputs {
+  /** a. 人员基本信息（从 Person 字段提炼，不含输出项） */
+  basic: {
+    name: string;
+    idCard: string | null;
+    gender: "男" | "女";
+    identity: string;
+    leader: string;
+    birth: string;
+    edu: string;
+    studyYears: number;
+    tag: string;
+    employ: Employ;
+    unitId: string;
+    position: string;
+    join: string;
+    gap: number;
+    unq: string;
+  };
+  /** b. 测算参数（从 gw_calc_v1_{id} 的 params 抓，故意不带 results）；若从未保存过为 null */
+  params: CalcParamsSnapshot | null;
+  /** c. 职务变化完整列表（已经包含在 params.positionChanges 中，这里冗余一份作为显式快照字段，便于外部直接读） */
+  positionChanges: SnapshotPosChange[];
+  /** d. 海拔变动完整列表（从 gw_alt_{id}） */
+  altChanges: AltRow[];
+  /** e. 考核情况完整列表（从 gw_assess_{id}） */
+  reviews: AssessRow[];
+  /** f. 档次参数（从 gw_salary_items_v1_{id}.addons；故意仅保留 id+label+steps+unit，不持久化 amount 推导值） */
+  gradeAddons: AddonItem[];
+  /** g. 津贴补贴（从 gw_salary_items_v1_{id}.allowances） */
+  allowances: AllowanceRow[];
+}
+
+/** localStorage 读接口（UI 层注入，便于 data.ts 纯函数不直接操作 DOM/storage） */
+export type ReadStorage = (key: string) => string | null;
+/** localStorage 写接口 */
+export type WriteStorage = (key: string, value: string) => void;
+
+/* -------- 本地存储 key 命名（与 UI 层保持一致，集中定义避免魔法字符串） -------- */
+export const LS_KEY = {
+  calc: (id: number) => `gw_calc_v1_${id}`,
+  items: (id: number) => `gw_salary_items_v1_${id}`,
+  alt: (id: number) => `gw_alt_${id}`,
+  assess: (id: number) => `gw_assess_${id}`,
+} as const;
+
+/* -------- NFR-1：空值归一（'' 或全空白 → null；0 与合法空数组保持原样） -------- */
+export function sanitizeNullish<T>(v: T | "" | null | undefined): T | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "string" && v.trim() === "") return null;
+  return v as T;
+}
+export function sanitizeArray<T>(arr: T[] | null | undefined): T[] {
+  return Array.isArray(arr) ? arr : [];
+}
+
+/* -------- FR-2：剥离 Person 中所有"输出项"并回写为"待测算"占位 -------- */
+export function stripOutputs(p: Person): Person {
+  return {
+    ...p,
+    tYears: 0,
+    curType: "待测算",
+    tgLabels: ["按现职套", "按低职套", "按学历套"],
+    tgNow: { result: "—", note: "待测算" },
+    tgLow: { result: "—", note: "待测算" },
+    tgEdu: { result: "—", note: "待测算" },
+    history: [],
+  };
+}
+
+/* -------- 构造 PersonInputs.basic 子字段 -------- */
+function snapshotBasic(p: Person): PersonInputs["basic"] {
+  return {
+    name: p.name ?? "",
+    idCard: sanitizeNullish(p.idCard),
+    gender: p.gender,
+    identity: p.identity ?? "",
+    leader: p.leader ?? "",
+    birth: p.birth ?? "",
+    edu: p.edu ?? "",
+    studyYears: Number.isFinite(p.studyYears) ? p.studyYears : 0,
+    tag: p.tag ?? "普通工改",
+    employ: p.employ ?? "在职",
+    unitId: p.unitId ?? "",
+    position: p.position ?? "",
+    join: p.join ?? "",
+    gap: Number.isFinite(p.gap) ? p.gap : 0,
+    unq: p.unq ?? "无考核记录",
+  };
+}
+
+/* -------- 安全 JSON 解析（NFR-1：损坏数据不抛错） -------- */
+function safeParse<T = unknown>(raw: string | null | undefined, fallback: T): T {
+  if (!raw) return fallback;
+  try { return JSON.parse(raw) as T; } catch { return fallback; }
+}
+
+/**
+ * snapshotPersonInputs
+ * 从 Person + 本地 storage 快照采集 FR-1 的 a-g 七类输入项（纯函数，无副作用）
+ *
+ * 对 UI 层传入 read: (k)=>localStorage.getItem(k)；测试时可传 Map 读写。
+ */
+export function snapshotPersonInputs(p: Person, read: ReadStorage): PersonInputs {
+  // b. 测算参数快照：仅取 params（不含 results）
+  const calcSave = safeParse<{ params?: Partial<CalcParamsSnapshot> | null }>(read(LS_KEY.calc(p.id)), {});
+  const rawParams = calcSave.params ?? null;
+  let params: CalcParamsSnapshot | null = null;
+  if (rawParams && typeof rawParams === "object") {
+    const rp = rawParams as Partial<CalcParamsSnapshot> & Record<string, unknown>;
+    const pc = Array.isArray(rp.positionChanges)
+      ? rp.positionChanges.map((c) => ({ year: Number(c.year) || 0, dutyIndex: Number(c.dutyIndex) || 0, reason: String(c.reason ?? ""), isInitial: !!c.isInitial }))
+      : [];
+    params = {
+      type: rp.type === "pre2006" || rp.type === "post2006" ? rp.type : "pre2006",
+      startYear: Number(rp.startYear) || 1990,
+      educationIndex: Number(rp.educationIndex) || 0,
+      deductYears: Math.max(0, Number(rp.deductYears) || 0),
+      currentDutyIndex: Number(rp.currentDutyIndex) || 0,
+      currentDutyYear: Number(rp.currentDutyYear) || 2000,
+      lowerDutyIndex: Number(rp.lowerDutyIndex) || 0,
+      lowerDutyYear: Number(rp.lowerDutyYear) || 1999,
+      positionChanges: pc,
+    };
+  }
+
+  // f/g：档次参数 + 津贴（剥离 v2 元字段；档次参数只保留 id/label/steps/unit）
+  const itemsSave = safeParse<{ addons?: unknown[] | null; allowances?: unknown[] | null }>(read(LS_KEY.items(p.id)), {});
+  const gradeAddons: AddonItem[] = sanitizeArray(itemsSave.addons).map((a: unknown) => {
+    const o = (a ?? {}) as Record<string, unknown>;
+    return {
+      id: String(o.id ?? `addon_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`),
+      label: String(o.label ?? "加项"),
+      steps: Math.max(0, Math.round(Number(o.steps) || 0)),
+      unit: Number(o.unit) > 0 ? Number(o.unit) : 25,
+    };
+  });
+  const allowances: AllowanceRow[] = sanitizeArray(itemsSave.allowances).map((a: unknown) => {
+    const o = (a ?? {}) as Record<string, unknown>;
+    return {
+      id: String(o.id ?? `custom_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`),
+      label: String(o.label ?? "津贴项"),
+      detail: String(o.detail ?? ""),
+      amount: Number.isFinite(o.amount) ? Number(o.amount) : 0,
+    };
+  });
+
+  // d. 海拔变动
+  const altRaw = sanitizeArray(safeParse<unknown[] | null>(read(LS_KEY.alt(p.id)), null));
+  const altChanges: AltRow[] = altRaw
+    .filter((r) => !!r && typeof (r as Record<string, unknown>).ym === "string" && Number.isFinite((r as Record<string, unknown>).tier))
+    .map((r) => {
+      const o = r as Record<string, unknown>;
+      return { ym: String(o.ym), tier: Number(o.tier), type: (o.type === "year" || o.type === "month") ? o.type : undefined };
+    });
+
+  // e. 考核情况
+  const assessRaw = sanitizeArray(safeParse<unknown[] | null>(read(LS_KEY.assess(p.id)), null));
+  const reviews: AssessRow[] = assessRaw
+    .filter((r) => !!r && Number.isFinite((r as Record<string, unknown>).year))
+    .map((r) => {
+      const o = r as Record<string, unknown>;
+      return { year: Number(o.year), result: String(o.result ?? "称职") };
+    });
+
+  // c. 职务变化：直接复用 params.positionChanges 冗余一份作为显式字段（若 params===null，填空数组）
+  const positionChanges: SnapshotPosChange[] = params ? params.positionChanges.map((c) => ({ ...c })) : [];
+
+  return {
+    basic: snapshotBasic(p),
+    params,
+    positionChanges,
+    altChanges,
+    reviews,
+    gradeAddons,
+    allowances,
+  };
+}
+
+/**
+ * applyPersonInputs
+ * 1) 返回一个 "Person 基本字段来自 inputs.basic + 输出项已剥离" 的新 Person（id 保持不变）
+ * 2) 写入 4 个 localStorage key（由 write 接口注入）：
+ *    - gw_calc_v1_{id}：只写 { params }（故意不写 results，下次打开 UI 显示"待测算"）
+ *    - gw_salary_items_v1_{id}：{ addons, allowances, v2: true }
+ *    - gw_alt_{id}：altChanges
+ *    - gw_assess_{id}：reviews
+ *
+ * 说明：本函数不写 history/tgNow 等结论字段（由 UI 点击"开始测算"再次 generate）。
+ */
+export function applyPersonInputs(p: Person, inputs: PersonInputs, write: WriteStorage): Person {
+  const b = inputs.basic ?? ({} as Partial<PersonInputs["basic"]>);
+  // 新 Person：id 必须保持原 id 不变；所有非输出字段取 basic；输出字段强制 stripOutputs
+  const nextPerson = stripOutputs({
+    ...p,
+    name: b.name ?? p.name,
+    idCard: sanitizeNullish(b.idCard),
+    gender: b.gender ?? p.gender,
+    identity: b.identity ?? p.identity,
+    leader: b.leader ?? p.leader,
+    birth: b.birth ?? p.birth,
+    edu: b.edu ?? p.edu,
+    studyYears: Number.isFinite(b.studyYears) ? b.studyYears : p.studyYears,
+    tag: b.tag ?? p.tag,
+    employ: (b.employ as Employ) ?? p.employ,
+    unitId: b.unitId ?? p.unitId,
+    position: b.position ?? p.position,
+    join: b.join ?? p.join,
+    gap: Number.isFinite(b.gap) ? b.gap : p.gap,
+    unq: b.unq ?? p.unq,
+  });
+
+  // 测算参数（只写 params，不写 results）
+  if (inputs.params) {
+    write(LS_KEY.calc(p.id), JSON.stringify({ params: inputs.params }));
+  } else {
+    // 如果快照没有 params，则保留 calc 存档为空即可（下次 deriveParams 回退默认）
+    // 为避免旧 results 污染，清空 calc key
+    try { write(LS_KEY.calc(p.id), ""); } catch { /* ignore */ }
+  }
+
+  // 工资档次 + 津贴
+  const addonsPayload = {
+    addons: (inputs.gradeAddons ?? []).map((a) => ({ id: a.id, label: a.label, steps: a.steps, unit: a.unit })),
+    allowances: (inputs.allowances ?? []).map((a) => ({ id: a.id, label: a.label, detail: a.detail, amount: a.amount })),
+    v2: true as const,
+  };
+  write(LS_KEY.items(p.id), JSON.stringify(addonsPayload));
+  write(LS_KEY.alt(p.id), JSON.stringify(inputs.altChanges ?? []));
+  write(LS_KEY.assess(p.id), JSON.stringify(inputs.reviews ?? []));
+
+  return nextPerson;
+}
+
+/* ========================================================================== */
+/*  V2 导出/导入 payload 类型 & 工具函数（Task 2）                              */
+/* ========================================================================== */
+
+export interface ExportPayloadV2 {
+  kind: "gw-salary-persons";
+  version: 2;
+  exportedAt: string;
+  units: Unit[];
+  persons: Array<Person & { inputs?: PersonInputs }>;
+}
+
+/** 旧版 V1 payload（向后兼容） */
+export interface LegacyPayloadV1 {
+  kind?: "gw-salary-persons";
+  version?: 1;
+  exportedAt?: string;
+  units?: Unit[];
+  persons?: Person[];
+}
+
+export type ParsedImportResult =
+  | { version: 2; units: Unit[]; persons: Array<Person & { inputs?: PersonInputs }>; }
+  | { version: 1; units: Unit[]; persons: Person[]; };
+
+/**
+ * buildExportPayload — 构造 V2 导出 payload（核心：stripOutputs + snapshotPersonInputs）
+ */
+export function buildExportPayload(
+  selected: Person[],
+  unitsAll: Unit[],
+  read: ReadStorage
+): ExportPayloadV2 {
+  const usedUnitIds = new Set(selected.map((p) => p.unitId).filter(Boolean));
+  const units = unitsAll.filter((u) => usedUnitIds.has(u.id));
+  const persons = selected.map((p) => {
+    const stripped = stripOutputs(p);
+    const inputs = snapshotPersonInputs(p, read);
+    return { ...stripped, inputs } as Person & { inputs: PersonInputs };
+  });
+  return {
+    kind: "gw-salary-persons",
+    version: 2,
+    exportedAt: new Date().toLocaleString("zh-CN"),
+    units,
+    persons,
+  };
+}
+
+/**
+ * parseImportPayload — 识别 V1/V2 并归一（NFR-1：损坏数据不抛错）
+ */
+export function parseImportPayload(raw: unknown): ParsedImportResult {
+  // 兜底：raw 不是对象
+  if (!raw || typeof raw !== "object") {
+    if (Array.isArray(raw)) {
+      return { version: 1, units: [], persons: (raw as Person[]).filter(Boolean).map(stripOutputs) };
+    }
+    return { version: 1, units: [], persons: [] };
+  }
+  const obj = raw as LegacyPayloadV2OrArray;
+  // case 1：直接 Person[]（最原始格式）
+  if (Array.isArray(obj)) {
+    return { version: 1, units: [], persons: obj.filter(Boolean).map(stripOutputs) as Person[] };
+  }
+  const version = obj.version === 2 ? 2 : 1;
+  const units = Array.isArray(obj.units) ? obj.units : [];
+  const persons = Array.isArray(obj.persons) ? obj.persons : [];
+  if (version === 2) {
+    // V2：基本 Person 字段 stripOutputs（避免旧 V2 残留的推算结果污染），但保留 inputs 附加字段
+    const cleaned = persons.map((p) => {
+      const base = stripOutputs(p as Person) as Person & { inputs?: PersonInputs };
+      if ((p as { inputs?: PersonInputs }).inputs) base.inputs = (p as { inputs?: PersonInputs }).inputs;
+      return base as Person & { inputs?: PersonInputs };
+    });
+    return { version: 2, units, persons: cleaned };
+  }
+  // V1 旧文件二次清洗：history/tYears/tg*/curType 全部回写为"待测算"占位，避免旧推算结果被当真
+  return { version: 1, units, persons: persons.map((p) => stripOutputs(p as Person)) as Person[] };
+}
+type LegacyPayloadV2OrArray =
+  | (Omit<LegacyPayloadV1, "version"> & { version?: 1 | 2; persons?: Array<Person & { inputs?: PersonInputs }>; })
+  | Person[];
+

@@ -1,12 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Employ, INITIAL_UNITS, PEOPLE, Person, Unit, WageZone } from "./data";
+import {
+  Employ, INITIAL_UNITS, PEOPLE, Person, Unit, WageZone, makePerson,
+  /* ---- Spec: person-import-export-inputs-only ---- */
+  ParsedImportResult, PersonInputs, applyPersonInputs,
+} from "./data";
 import { MenuRail, MenuKey, StatusBar, Theme, TitleBar, Toast, ToastStack, UserStrip } from "./components/chrome";
 import { ChatWidget } from "./components/ChatWidget";
 import { PersonList } from "./components/PersonList";
 import { DetailPanel } from "./components/DetailPanel";
 import { Login, Session, loadAccounts } from "./components/Login";
 import {
-  ConfirmDeleteModal, ExitModal, ExitScreen, HelpModal, PersonAddModal, QueryModal,
+  ConfirmDeleteModal, ExitModal, ExitScreen, ForecastModal, HelpModal, PersonAddModal, QueryModal,
   RecalcModal, RegisterModal, RollingModal, UnitModal, UserManageModal,
 } from "./components/modals";
 import { AllowanceModal, CalcModal, CatalogModal } from "./components/tools";
@@ -17,7 +21,7 @@ import {
 } from "./core/db";
 
 type ModalKind =
-  | "query" | "unit" | "person" | "allowance" | "recalc" | "rolling"
+  | "query" | "forecast" | "unit" | "person" | "editPerson" | "allowance" | "recalc" | "rolling"
   | "del" | "catalog" | "calc" | "users" | "register" | "help" | "exit" | null;
 
 interface Reg { code: string; at: string; }
@@ -214,9 +218,11 @@ export default function App() {
     if (!k) return persons;
     return persons.filter((p) => {
       const un = units.find((u) => u.id === p.unitId)?.name ?? "";
-      /* 需求7：检索范围增加职务 */
+      /* Spec: 检索范围扩展：姓名 / 编号 / 单位ID / 单位名 / 职务 / 身份证号 */
+      const idCard = (p as Person & { idCard?: string | null }).idCard ?? "";
       return p.name.toLowerCase().includes(k) || String(p.id) === k || p.unitId.includes(k)
-        || un.includes(k) || (p.position ?? "").toLowerCase().includes(k);
+        || un.includes(k) || (p.position ?? "").toLowerCase().includes(k)
+        || idCard.toLowerCase().includes(k);
     });
   }, [persons, query, units]);
 
@@ -238,6 +244,7 @@ export default function App() {
   const onMenu = (k: MenuKey) => {
     switch (k) {
       case "query": setModal("query"); break;
+      case "forecast": setModal("forecast"); break;
       case "catalog": setModal("catalog"); break;
       case "calc": setModal("calc"); break;
       case "register": setModal("register"); break;
@@ -319,23 +326,105 @@ export default function App() {
     pushToast("success", `${p?.name ?? `编号${pid}`} 单位已变更为 [${unitId}] ${u?.name ?? ""}`);
   };
 
-  /* ---------- 新增人员（需求7） ---------- */
+  /* ---------- 新增人员（需求7） / 修改人员（UI-T2） 统一入口 ---------- */
   const addPerson = (p: Person) => {
-    setPersons((arr) => [...arr, p]);
+    const exists = persons.some((x) => x.id === p.id);
+    if (exists) {
+      setPersons((arr) => arr.map((x) => (x.id === p.id ? { ...x, ...p } : x)));
+      pushToast("success", `已修改「${p.name}」（编号${p.id}）的基本信息`);
+    } else {
+      setPersons((arr) => [...arr, p]);
+      setSelectedId(p.id);
+      pushToast("success", `已新增人员「${p.name}」（编号${p.id}），请核对参数后点击开始测算`);
+    }
     setSelectedId(p.id);
     setModal(null);
-    pushToast("success", `已新增人员「${p.name}」（编号${p.id}），请核对参数后点击开始测算`);
   };
   const nextPersonId = useMemo(() => Math.max(0, ...persons.map((p) => p.id)) + 1, [persons]);
 
-  /* 需求4：人员导入（重新编号入账，并补充文件内缺失的单位） */
-  const importPersons = (payload: { persons: Person[]; units?: Unit[] }) => {
-    const incUnits = (payload.units ?? []).filter((u) => u && u.id && !units.some((x) => x.id === u.id));
-    let nid = nextPersonId;
-    const added = payload.persons.map((p) => ({ ...p, id: nid++ }));
+  /* 需求4 & Spec：人员导入 — V2 支持快照覆盖（idCard 优先命中）；V1 保持向后兼容。
+   * 分发：(a) hasInputs 且查重命中→覆盖（applyPersonInputs 写 4 个 LS key，Person.id 保持不变）
+   *       (b) hasInputs 未命中 / 无 inputs→新增（makePerson + applyPersonInputs 或直接 push）
+   *       (c) 纯查重命中但未勾选→跳过（Toast 显示「新增 X / 覆盖 Y / 跳过 Z」） */
+  const importPersons = (payload: ParsedImportResult & { selectedIdx: number[] }) => {
+    if (!canEdit) { pushToast("error", "人员导入需要可编辑权限（当前为仅查看）"); return; }
+    const payloadUnits = payload.units ?? [];
+    const incUnits = payloadUnits.filter((u) => u && u.id && !units.some((x) => x.id === u.id));
     if (incUnits.length) setUnits((arr) => [...arr, ...incUnits]);
-    setPersons((arr) => [...arr, ...added]);
-    pushToast("success", `已导入 ${added.length} 名人员${incUnits.length ? `，补充 ${incUnits.length} 个单位` : ""}`);
+
+    const write = (k: string, v: string) => localStorage.setItem(k, v);
+
+    // 构建查重键（idCard 优先）
+    const keyOf = (p: Person & { idCard?: string | null }) => {
+      const idCard = p.idCard;
+      if (idCard && idCard.trim()) return `CARD|${idCard.trim()}`;
+      return `F|${p.name}|${p.birth || ""}|${p.identity || ""}|${p.join || ""}`;
+    };
+    const existingKeys = new Map<string, Person>();
+    persons.forEach((p) => existingKeys.set(keyOf(p as Person & { idCard?: string | null }), p));
+
+    let added = 0, overwritten = 0, skipped = 0;
+    let nid = nextPersonId;
+    const newPersons: Person[] = [];
+    // applyPersonInputs 返回新 Person，已经 stripOutputs；
+    // 对于覆盖场景：id 保持不变，replaceInPlace 需要 setPersons 时回写。
+    const overlayMap = new Map<number, Person>();
+
+    (payload.persons as Array<Person & { inputs?: PersonInputs }>).forEach((inRow, idx) => {
+      const wasSel = payload.selectedIdx.includes(idx);
+      if (!wasSel) { skipped++; return; }
+      const p = inRow;
+      const k = keyOf(p);
+      const existing = existingKeys.get(k) ?? null;
+      const inputs = inRow.inputs ?? null;
+      // 构造基础 Person（未命中 → nextId / 命中 → 保留原 id）
+      const base = existing ?? (() => {
+        const fresh = makePerson({ id: nid++, name: p.name, unitId: p.unitId });
+        // 补齐 basic 字段（applyPersonInputs 内部会覆盖 basic + 写 LS）
+        return fresh;
+      })();
+      if (inputs) {
+        const updated = applyPersonInputs(base, inputs, write);
+        if (existing) {
+          overlayMap.set(existing.id, updated);
+          overwritten++;
+        } else {
+          newPersons.push(updated);
+          added++;
+        }
+      } else {
+        // 仅基础 Person（V1 或旧文件）—— 走"全新入账"或"覆盖基础字段"两种策略
+        if (existing) {
+          // V1 且命中 → 默认跳过（避免覆盖已有手改数据），除非显式选择了"强制覆盖"
+          skipped++;
+          pushToast("info", `已跳过：${existing.name}（已存在，导入文件未包含完整快照）`);
+        } else {
+          const np = makePerson({
+            id: nid++, name: p.name, unitId: p.unitId,
+            gender: p.gender, birth: p.birth, join: p.join, identity: p.identity, edu: p.edu,
+            tag: p.tag, employ: p.employ, position: p.position, gap: p.gap, unq: p.unq,
+            idCard: p.idCard,
+          });
+          // V1 文件不写 localStorage（用户手动填参数后测算即可）
+          newPersons.push(np);
+          added++;
+        }
+      }
+    });
+
+    if (overlayMap.size) {
+      setPersons((arr) => arr.map((p) => overlayMap.has(p.id) ? (overlayMap.get(p.id) as Person) : p).concat(newPersons));
+    } else if (newPersons.length) {
+      setPersons((arr) => arr.concat(newPersons));
+    }
+    const parts: string[] = [];
+    if (added) parts.push(`新增 ${added}`);
+    if (overwritten) parts.push(`覆盖 ${overwritten}`);
+    if (skipped) parts.push(`跳过 ${skipped}`);
+    pushToast(
+      added || overwritten ? "success" : "info",
+      `人员导入完成${parts.length ? `：${parts.join(" / ")}` : "：无人员入账"}${incUnits.length ? `（补充单位 ${incUnits.length} 个）` : ""}`
+    );
   };
 
   /* ---------- 全部重算：核验（只读）→ 应用（重写演变表） ---------- */
@@ -475,6 +564,8 @@ export default function App() {
               onSaved={() => setListTick((t) => t + 1)}
               units={units}
               onChangeUnit={(uid) => changePersonUnit(selected.id, uid)}
+              /* UI-T2：基本信息右上角「修改」按钮 → 复用 PersonAddModal(editingPerson) */
+              onEditPerson={() => { if (canEdit) setModal("editPerson"); else pushToast("error", "修改人员需要可编辑权限"); }}
             />
           ) : (
             <div className="flex-1 flex items-center justify-center text-[var(--tx-3)]">暂无人员，请通过「人员增加」菜单新增</div>
@@ -498,12 +589,21 @@ export default function App() {
         <QueryModal persons={persons} units={units} canEdit={canEdit} onClose={() => setModal(null)}
           onLocate={locate} onToast={pushToast} onImport={importPersons} />
       )}
+      {modal === "forecast" && (
+        <ForecastModal persons={persons} units={units} onClose={() => setModal(null)}
+          onLocate={locate} onToast={pushToast} />
+      )}
       {modal === "unit" && (
         <UnitModal units={units} persons={persons} canEdit={canEdit} onClose={() => setModal(null)}
           onAdd={addUnit} onRemove={removeUnit} onEdit={editUnit} />
       )}
       {modal === "person" && (
         <PersonAddModal units={units} nextId={nextPersonId} onClose={() => setModal(null)} onAdd={addPerson} />
+      )}
+      {/* UI-T2：复用 PersonAddModal 进入编辑模式（editingPerson 传 selected，且 nextId 不变） */}
+      {modal === "editPerson" && selected && (
+        <PersonAddModal units={units} nextId={nextPersonId} editingPerson={selected}
+          onClose={() => setModal(null)} onAdd={addPerson} />
       )}
       {modal === "allowance" && selected && (
         <AllowanceModal person={selected} unitName={unitName(selected.unitId)} onClose={() => setModal(null)} onToast={pushToast} />

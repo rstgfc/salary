@@ -93,7 +93,7 @@ export function TitleBar({ theme, onTheme, onClose, onMin, onZoom }: {
 
 /* ============ 菜单栏 ============ */
 export type MenuKey =
-  | "unit" | "person" | "allowance" | "query" | "recalc" | "rolling"
+  | "unit" | "person" | "allowance" | "query" | "forecast" | "recalc" | "rolling"
   | "del" | "catalog" | "calc" | "users" | "register" | "help" | "exit";
 
 const MENUS: { key: MenuKey; label: string; icon: IconName; danger?: boolean }[] = [
@@ -101,6 +101,7 @@ const MENUS: { key: MenuKey; label: string; icon: IconName; danger?: boolean }[]
   { key: "person", label: "人员增加", icon: "user" },
   { key: "allowance", label: "编辑津贴", icon: "allowance" },
   { key: "query", label: "综合查询", icon: "query" },
+  { key: "forecast", label: "业务预测", icon: "forecast" },
   { key: "recalc", label: "全部重算", icon: "recalc" },
   { key: "rolling", label: "滚动判断", icon: "rolling" },
   { key: "del", label: "人员删除", icon: "trash" },
@@ -210,7 +211,7 @@ export function StatusBar({ personCount, unitCount, registered, lastRecalc, onRe
   }, []);
   return (
     <div className="h-[26px] shrink-0 flex items-center gap-3 px-3 border-t border-[var(--line)] bg-[var(--bg-1)] text-[11px] text-[var(--tx-2)] select-none">
-      <span className="font-mono2 text-[var(--tx-3)]">BUILD 2026.01</span>
+      <span className="font-mono2 text-[var(--tx-3)]">BUILD 2026.08</span>
       {storage && (
         <span
           title={storage === "sqlite" ? "数据存储于本地 SQLite 数据库（IndexedDB 持久化），支持千人级" : "WASM/IndexedDB 不可用，当前为内存态"}

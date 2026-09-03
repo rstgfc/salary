@@ -5,10 +5,11 @@ import { Icon, IconName } from "./icons";
 import { SalaryPanel } from "./SalaryPanel";
 import { TaogaiModal } from "./modals";
 import {
-  runCalculation, CalcRunInput, CalcRunResult, CalcType, PosChange,
-  EDUCATION_OPTIONS, EDUCATION_VALUES, DUTY_OPTIONS, DUTY_VALUES,
+  runCalculation, CalcRunInput, CalcRunResult, CalcType,
+  EDUCATION_OPTIONS, DUTY_OPTIONS, DUTY_VALUES,
   LOWER_DUTY_OPTIONS, LOWER_DUTY_VALUES, POSITION_PICKER_LABELS, POSITION_PICKER_VALUES,
-  POLICY_CONFIG, dutyIndexByName, PERSON_CALC_INPUTS, Calculator,
+  POLICY_CONFIG, Calculator,
+  buildInitList, deriveParams,
 } from "../core/calculator";
 
 /* ---------- 区块标题 ---------- */
@@ -69,47 +70,8 @@ const reasonLabel = (r: string) =>
 /* ---------- 初始化职务变化列表 ---------- */
 /* 需求10：上一条为职级（101-111）时，新增职级向更高递增；否则职务正常晋升 */
 function nextDutyAfter(lastIndex: number): number {
-  if (lastIndex >= 101 && lastIndex <= 111) return Math.max(101, lastIndex - 1);
+  if (lastIndex >= 100 && lastIndex <= 111) return Math.max(100, lastIndex - 1);
   return POLICY_CONFIG.getNextDuty(lastIndex);
-}
-
-function buildInitList(type: CalcType, startYear: number, currentDutyIndex: number, currentDutyYear: number, educationIndex: number): PosChange[] {
-  if (type === "pre2006") {
-    const di = DUTY_VALUES[currentDutyIndex];
-    /* 需求10：第一条职务变化默认 2008 年 */
-    return [{ year: 2008, dutyIndex: POLICY_CONFIG.getNextDuty(di), reason: "职务晋升" }];
-  }
-  const eduVal = EDUCATION_VALUES[educationIndex];
-  const ec = POLICY_CONFIG.EDUCATION[eduVal];
-  return [{ year: (startYear || 2007) + 1, dutyIndex: ec.probation.dutyIndex, reason: "转正定级", isInitial: true }];
-}
-
-/* ---------- 从人员档案推导默认测算参数 ---------- */
-function deriveParams(p: Person): CalcRunInput {
-  const exist = PERSON_CALC_INPUTS[p.id];
-  if (exist) {
-    const cdi = DUTY_VALUES.indexOf(exist.currentDuty);
-    return {
-      type: "pre2006", startYear: exist.startYear, educationIndex: exist.educationIndex,
-      deductYears: exist.deductYears, currentDutyIndex: cdi, currentDutyYear: exist.currentDutyYear,
-      lowerDutyIndex: LOWER_DUTY_VALUES.indexOf(exist.lowerDuty), lowerDutyYear: exist.lowerDutyYear,
-      positionChanges: buildInitList("pre2006", exist.startYear, cdi, exist.currentDutyYear, exist.educationIndex),
-      endYear: new Date().getFullYear(),
-    };
-  }
-  const startYear = parseInt(p.join, 10) || 2010;
-  const type: CalcType = startYear < 2006 ? "pre2006" : "post2006";
-  const dutyName = p.position.replace(/（.*?）/g, "").trim();
-  const di = dutyName ? dutyIndexByName(dutyName) : null;
-  const cdi = di ? Math.max(0, DUTY_VALUES.indexOf(di)) : 1;
-  const eduIdx = p.edu.includes("研究") ? 0 : p.edu.includes("本科") ? 1 : p.edu.includes("专") ? 2 : 3;
-  return {
-    type, startYear, educationIndex: eduIdx, deductYears: 0,
-    currentDutyIndex: cdi, currentDutyYear: startYear < 2006 ? 2002 : startYear + 1,
-    lowerDutyIndex: 0, lowerDutyYear: 1999,
-    positionChanges: buildInitList(type, startYear, cdi, startYear < 2006 ? 2002 : startYear + 1, eduIdx),
-    endYear: new Date().getFullYear(),
-  };
 }
 
 /* ---------- 详细资料行类型（需求6） ---------- */
@@ -151,7 +113,7 @@ function calcAltitudeSubsidy(rows: AltRow[], currentYear: number): number {
   return total;
 }
 
-export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, onDelete, onSaved, units, onChangeUnit }: {
+export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, onDelete, onSaved, units, onChangeUnit, onEditPerson }: {
   person: Person;
   unitName: string;
   zone?: WageZone;               // 单位工资类区（西藏特殊津贴按类区计算）
@@ -162,6 +124,8 @@ export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, 
   onSaved?: () => void;
   units?: Unit[];                        // 需求7：点击单位名可改单位
   onChangeUnit?: (unitId: string) => void;
+  /** UI-T2：基本信息右上角「修改」按钮入口——打开修改人员 Step1/Step2 合并窗口 */
+  onEditPerson?: () => void;
 }) {
   const [params, setParams] = useState<CalcRunInput>(() => deriveParams(person));
   const [results, setResults] = useState<CalcRunResult | null>(null);
@@ -370,7 +334,7 @@ export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, 
 
       {/* 考核情况 */}
       <div className="card-panel overflow-hidden flex flex-col max-h-full">
-        <CardHead icon="clipboard" title="考核情况"
+        <CardHead icon="clipboard" title="考核情况（默认称职）"
           extra={<span className="font-mono2 text-[10px] px-1.5 py-px rounded-full bg-[rgba(48,209,88,.1)] border border-[rgba(48,209,88,.35)] text-[#1f8f4d] dark:text-[#7ede99]">{assessRows.length} 条</span>} />
         <div className="p-3 flex flex-col gap-2">
           {assessRows.map((row, idx) => (
@@ -488,7 +452,18 @@ export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, 
               {/* ---- 人员基本信息 ---- */}
               <div className="card-panel overflow-hidden">
                 <CardHead icon="user" title="人员基本信息"
-                  extra={<span className="font-mono2 text-[10px] text-[var(--tx-3)]">ID {String(person.id).padStart(4, "0")}</span>} />
+                  extra={
+                    onEditPerson
+                      ? (
+                        <button onClick={onEditPerson}
+                          className="inline-flex items-center gap-1 h-6 px-2.5 rounded-md border border-[rgba(10,132,255,.45)] bg-[rgba(10,132,255,.08)] text-[#0a84ff] dark:text-[#7fbfff] text-[11px] font-medium transition hover:bg-[rgba(10,132,255,.18)] active:scale-[.97] disabled:opacity-35"
+                          disabled={!canEdit}
+                          title="修改基本信息 / 身份证号 / 参加工作时间">
+                          <Icon name="edit" size={11} />修改
+                        </button>
+                      )
+                      : <span className="font-mono2 text-[10px] text-[var(--tx-3)]">ID {String(person.id).padStart(4, "0")}</span>
+                  } />
                 <div className="p-3 flex flex-col gap-3">
                   {/* 需求2：按参公年份自动选择，用户不可点击，样式不变 */}
                   <div className="seg w-full" title="按参公年份自动选择">
@@ -498,12 +473,23 @@ export function DetailPanel({ person, unitName, zone, canEdit, onTool, onToast, 
 
                   <div className="grid grid-cols-3 gap-x-3 gap-y-2">
                     {[
-                      ["姓名", person.name], ["性别", person.gender], ["出生年月", person.birth],
-                      ["身份", person.identity], ["职务", displayPosition],
+                      ["姓名", person.name],
+                      ["性别", person.gender],
+                      ["出生年月", person.birth],
+                      ["身份", person.identity],
+                      ["职务", displayPosition],
+                      [
+                        "身份证号",
+                        ((person as Person & { idCard?: string | null }).idCard) ? (
+                          <span className="font-mono2 tracking-wide" title={(person as Person & { idCard?: string | null }).idCard ?? ""}>
+                            {(person as Person & { idCard?: string | null }).idCard}
+                          </span>
+                        ) : <span className="text-[var(--tx-3)]">未填写</span>
+                      ],
                     ].map(([k, v]) => (
                       <div key={k as string} className="min-w-0">
                         <p className="text-[10px] text-[var(--tx-3)]">{k}</p>
-                        <p className={`text-[12.5px] text-[var(--tx-1)] truncate ${k === "姓名" ? "font-semibold" : ""}`}>{v}</p>
+                        <p className={`text-[12.5px] text-[var(--tx-1)] truncate ${k === "姓名" ? "font-semibold" : ""}`}>{typeof v === "string" ? v : (v as any)}</p>
                       </div>
                     ))}
                   </div>

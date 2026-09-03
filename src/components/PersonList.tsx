@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { EMPLOY_META, Person, POSITION_LEVELS, TAG_META, Unit } from "../data";
 import { latestDutyLabel } from "../core/calculator";
 import { Icon } from "./icons";
@@ -21,6 +21,109 @@ const rankOfDuty = (d: string): number => {
 
 type SortKey = "none" | "duty" | "birth" | "join";
 
+/* 业务预测：筛选 / 排序共用控件（条件与行为与左侧名单完全一致；结果经 onView 上报） */
+export function PersonFilterSort({ persons, units, onView }: {
+  persons: Person[];
+  units: Unit[];
+  onView: (v: Person[]) => void;
+}) {
+  const [filOpen, setFilOpen] = useState(false);
+  const [fUnit, setFUnit] = useState("all");
+  const [fGender, setFGender] = useState("all");
+  const [fDuty, setFDuty] = useState("all");
+  const [sortKey, setSortKey] = useState<SortKey>("none");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  /* 职务筛选项（去重，按职务层次自高到低） */
+  const dutyOpts = useMemo(() => {
+    const set = new Set<string>();
+    persons.forEach((p) => set.add(dutyOf(p)));
+    return Array.from(set).sort((a, b) => rankOfDuty(a) - rankOfDuty(b));
+  }, [persons]);
+
+  const filCount = (fUnit !== "all" ? 1 : 0) + (fGender !== "all" ? 1 : 0) + (fDuty !== "all" ? 1 : 0);
+  const clearFilter = () => { setFUnit("all"); setFGender("all"); setFDuty("all"); };
+
+  /* 筛选 + 排序后的列表 */
+  const view = useMemo(() => {
+    let arr = persons.filter((p) =>
+      (fUnit === "all" || p.unitId === fUnit) &&
+      (fGender === "all" || p.gender === fGender) &&
+      (fDuty === "all" || dutyOf(p) === fDuty)
+    );
+    if (sortKey !== "none") {
+      const key = sortKey === "duty" ? (p: Person) => rankOfDuty(dutyOf(p)) : sortKey === "birth" ? (p: Person) => ymOf(p.birth) : (p: Person) => ymOf(p.join);
+      arr = [...arr].sort((a, b) => (sortDir === "asc" ? 1 : -1) * (key(a) - key(b)));
+    }
+    return arr;
+  }, [persons, fUnit, fGender, fDuty, sortKey, sortDir]);
+
+  useEffect(() => { onView(view); }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-1.5">
+        <button onClick={() => setFilOpen((v) => !v)}
+          title="按单位 / 性别 / 职务筛选"
+          className={`shrink-0 h-7 px-2 rounded-md border text-[11px] flex items-center gap-1 transition active:scale-95 ${
+            filCount ? "border-[rgba(10,132,255,.55)] bg-[var(--sel)] text-[var(--acc)]" : "border-[var(--line)] bg-[var(--bg-2)] text-[var(--tx-2)] hover:text-[var(--tx-1)] hover:bg-[var(--hov)]"
+          }`}>
+          <Icon name="filter" size={11} />筛选
+          {filCount > 0 && (
+            <span className="min-w-[14px] h-[14px] px-0.5 rounded-full bg-[#0a84ff] text-white text-[10px] font-bold flex items-center justify-center">{filCount}</span>
+          )}
+        </button>
+        <select value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)}
+          title="选择排序依据"
+          className="field h-7 flex-1 min-w-0 px-1.5 text-[11px]">
+          <option value="none">默认排序</option>
+          <option value="duty">按职务层次</option>
+          <option value="birth">按出生年月</option>
+          <option value="join">按参公时间</option>
+        </select>
+        <button onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+          disabled={sortKey === "none"} title={sortDir === "asc" ? "当前升序，点击降序" : "当前降序，点击升序"}
+          className="shrink-0 w-7 h-7 rounded-md border border-[var(--line)] bg-[var(--bg-2)] flex items-center justify-center text-[var(--tx-2)] hover:text-[var(--acc)] hover:bg-[var(--hov)] transition active:scale-95 disabled:opacity-35 disabled:pointer-events-none">
+          <Icon name="sort" size={12} className={sortDir === "asc" ? "" : "rotate-180"} />
+        </button>
+      </div>
+
+      {filOpen && (
+        <div className="anim-fade rounded-lg border border-[var(--line)] bg-[var(--bg-2)] p-1.5 flex flex-col gap-1.5">
+          <div className="flex items-center gap-1.5">
+            <span className="shrink-0 w-8 text-[10.5px] text-[var(--tx-3)]">单位</span>
+            <select value={fUnit} onChange={(e) => setFUnit(e.target.value)} className="field h-7 flex-1 min-w-0 px-1.5 text-[11px]">
+              <option value="all">全部单位</option>
+              {units.map((u) => <option key={u.id} value={u.id}>[{u.id}] {u.name}</option>)}
+            </select>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="shrink-0 w-8 text-[10.5px] text-[var(--tx-3)]">性别</span>
+            <select value={fGender} onChange={(e) => setFGender(e.target.value)} className="field h-7 flex-1 min-w-0 px-1.5 text-[11px]">
+              <option value="all">全部</option>
+              <option value="男">男</option>
+              <option value="女">女</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="shrink-0 w-8 text-[10.5px] text-[var(--tx-3)]">职务</span>
+            <select value={fDuty} onChange={(e) => setFDuty(e.target.value)} className="field h-7 flex-1 min-w-0 px-1.5 text-[11px]">
+              <option value="all">全部职务</option>
+              {dutyOpts.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
+          {filCount > 0 && (
+            <button onClick={clearFilter}
+              className="h-6 rounded-md border border-dashed border-[rgba(255,69,58,.5)] text-[#d70015] dark:text-[#ff8b84] text-[10.5px] hover:bg-[rgba(255,69,58,.08)] transition active:scale-95">
+              清除全部筛选
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function PersonList({ persons, total, selectedId, onSelect, query, onQuery, units, tick, onQueryModal }: {
   persons: Person[];
   total: number;
@@ -36,37 +139,9 @@ export function PersonList({ persons, total, selectedId, onSelect, query, onQuer
   const unitName = (id: string) => units.find((u) => u.id === id)?.name ?? "未知单位";
   const onDuty = persons.filter((p) => p.employ === "在职").length;
 
-  /* 需求2：筛选 + 排序状态 */
-  const [filOpen, setFilOpen] = useState(false);
-  const [fUnit, setFUnit] = useState("all");
-  const [fGender, setFGender] = useState("all");
-  const [fDuty, setFDuty] = useState("all");
-  const [sortKey, setSortKey] = useState<SortKey>("none");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-
-  /* 需求2：职务筛选项（去重，按职务层次自高到低） */
-  const dutyOpts = useMemo(() => {
-    const set = new Set<string>();
-    persons.forEach((p) => set.add(dutyOf(p)));
-    return Array.from(set).sort((a, b) => rankOfDuty(a) - rankOfDuty(b));
-  }, [persons]);
-
-  const filCount = (fUnit !== "all" ? 1 : 0) + (fGender !== "all" ? 1 : 0) + (fDuty !== "all" ? 1 : 0);
-  const clearFilter = () => { setFUnit("all"); setFGender("all"); setFDuty("all"); };
-
-  /* 需求2：筛选 + 排序后的列表 */
-  const view = useMemo(() => {
-    let arr = persons.filter((p) =>
-      (fUnit === "all" || p.unitId === fUnit) &&
-      (fGender === "all" || p.gender === fGender) &&
-      (fDuty === "all" || dutyOf(p) === fDuty)
-    );
-    if (sortKey !== "none") {
-      const key = sortKey === "duty" ? (p: Person) => rankOfDuty(dutyOf(p)) : sortKey === "birth" ? (p: Person) => ymOf(p.birth) : (p: Person) => ymOf(p.join);
-      arr = [...arr].sort((a, b) => (sortDir === "asc" ? 1 : -1) * (key(a) - key(b)));
-    }
-    return arr;
-  }, [persons, fUnit, fGender, fDuty, sortKey, sortDir]);
+  /* 需求2：筛选 + 排序（共用控件 PersonFilterSort，结果回调） */
+  const [view, setView] = useState<Person[]>(persons);
+  const onView = useCallback((v: Person[]) => setView(v), []);
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-[var(--bg-1)]">
@@ -104,66 +179,9 @@ export function PersonList({ persons, total, selectedId, onSelect, query, onQuer
         </div>
       </div>
 
-      {/* 需求2：筛选 + 排序工具行 */}
-      <div className="px-2.5 pb-2 shrink-0 flex flex-col gap-1.5">
-        <div className="flex items-center gap-1.5">
-          <button onClick={() => setFilOpen((v) => !v)}
-            title="按单位 / 性别 / 职务筛选"
-            className={`shrink-0 h-7 px-2 rounded-md border text-[11px] flex items-center gap-1 transition active:scale-95 ${
-              filCount ? "border-[rgba(10,132,255,.55)] bg-[var(--sel)] text-[var(--acc)]" : "border-[var(--line)] bg-[var(--bg-2)] text-[var(--tx-2)] hover:text-[var(--tx-1)] hover:bg-[var(--hov)]"
-            }`}>
-            <Icon name="filter" size={11} />筛选
-            {filCount > 0 && (
-              <span className="min-w-[14px] h-[14px] px-0.5 rounded-full bg-[#0a84ff] text-white text-[10px] font-bold flex items-center justify-center">{filCount}</span>
-            )}
-          </button>
-          <select value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)}
-            title="选择排序依据"
-            className="field h-7 flex-1 min-w-0 px-1.5 text-[11px]">
-            <option value="none">默认排序</option>
-            <option value="duty">按职务层次</option>
-            <option value="birth">按出生年月</option>
-            <option value="join">按参公时间</option>
-          </select>
-          <button onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
-            disabled={sortKey === "none"} title={sortDir === "asc" ? "当前升序，点击降序" : "当前降序，点击升序"}
-            className="shrink-0 w-7 h-7 rounded-md border border-[var(--line)] bg-[var(--bg-2)] flex items-center justify-center text-[var(--tx-2)] hover:text-[var(--acc)] hover:bg-[var(--hov)] transition active:scale-95 disabled:opacity-35 disabled:pointer-events-none">
-            <Icon name="sort" size={12} className={sortDir === "asc" ? "" : "rotate-180"} />
-          </button>
-        </div>
-
-        {filOpen && (
-          <div className="anim-fade rounded-lg border border-[var(--line)] bg-[var(--bg-2)] p-1.5 flex flex-col gap-1.5">
-            <div className="flex items-center gap-1.5">
-              <span className="shrink-0 w-8 text-[10.5px] text-[var(--tx-3)]">单位</span>
-              <select value={fUnit} onChange={(e) => setFUnit(e.target.value)} className="field h-7 flex-1 min-w-0 px-1.5 text-[11px]">
-                <option value="all">全部单位</option>
-                {units.map((u) => <option key={u.id} value={u.id}>[{u.id}] {u.name}</option>)}
-              </select>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="shrink-0 w-8 text-[10.5px] text-[var(--tx-3)]">性别</span>
-              <select value={fGender} onChange={(e) => setFGender(e.target.value)} className="field h-7 flex-1 min-w-0 px-1.5 text-[11px]">
-                <option value="all">全部</option>
-                <option value="男">男</option>
-                <option value="女">女</option>
-              </select>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="shrink-0 w-8 text-[10.5px] text-[var(--tx-3)]">职务</span>
-              <select value={fDuty} onChange={(e) => setFDuty(e.target.value)} className="field h-7 flex-1 min-w-0 px-1.5 text-[11px]">
-                <option value="all">全部职务</option>
-                {dutyOpts.map((d) => <option key={d} value={d}>{d}</option>)}
-              </select>
-            </div>
-            {filCount > 0 && (
-              <button onClick={clearFilter}
-                className="h-6 rounded-md border border-dashed border-[rgba(255,69,58,.5)] text-[#d70015] dark:text-[#ff8b84] text-[10.5px] hover:bg-[rgba(255,69,58,.08)] transition active:scale-95">
-                清除全部筛选
-              </button>
-            )}
-          </div>
-        )}
+      {/* 需求2：筛选 + 排序工具行（业务预测复用同一控件） */}
+      <div className="px-2.5 pb-2 shrink-0">
+        <PersonFilterSort persons={persons} units={units} onView={onView} />
       </div>
 
       {/* 列表 */}

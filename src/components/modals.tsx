@@ -1,11 +1,17 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { EMPLOY_META, Employ, Person, TAG_META, Unit, WAGE_ZONES, WageZone, makePerson, yearOf, fmt, fmtLevel, lastOf } from "../data";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  EMPLOY_META, Employ, Person, TAG_META, Unit, WAGE_ZONES, WageZone, makePerson, yearOf, fmt, fmtLevel, lastOf,
+  /* ---- Spec: person-import-export-inputs-only ---- */
+  buildExportPayload, parseImportPayload, ParsedImportResult, PersonInputs, stripOutputs,
+} from "../data";
 import {
   VerifyReport, CalcRunResult, Calculator, latestDutyLabel,
   EDUCATION_OPTIONS, DUTY_OPTIONS, dutyWage2006, POLICY_CONFIG,
+  runCalculation, CalcRunInput, deriveParams,
 } from "../core/calculator";
 import { getTibetAbs, getTibetFactor } from "../core/wageStd";
 import { addAccount, loadAccounts, Role } from "./Login";
+import { PersonFilterSort } from "./PersonList";
 import { Icon, IconName, Logo } from "./icons";
 
 /* ================= 通用弹窗 ================= */
@@ -102,7 +108,7 @@ const DEFAULT_ADDONS: AddonItem[] = [
   { id: "fiveYear", label: "五年浮动", steps: 0, unit: 25 },
   { id: "xueLiFixed", label: "学历固定", steps: 0, unit: 25 },
   { id: "nian20", label: "20年固定", steps: 0, unit: 25 },
-  { id: "xianXiang", label: "县以下提高", steps: 0, unit: 25 },
+  // {/*{ id: "xianXiang", label: "县以下提高", steps: 0, unit: 25 },*/}
 ];
 const ADDON_CAPS: Record<string, number> = { fiveYear: 1, xianXiang: 1, xueLiFixed: 4, nian20: 4 };
 const AUTO_IDS = ["fiveYear", "xueLiFixed", "nian20"];
@@ -131,10 +137,9 @@ function defaultAddons(above: boolean, workYears: number): AddonItem[] {
     { id: "fiveYear", label: "五年浮动", steps: ruleSteps("fiveYear", above, workYears), unit: 25 },
     { id: "xueLiFixed", label: "学历固定", steps: ruleSteps("xueLiFixed", above, workYears), unit: 25 },
     { id: "nian20", label: "20年固定", steps: ruleSteps("nian20", above, workYears), unit: 25 },
-    { id: "xianXiang", label: "县以下提高", steps: 0, unit: 25 },
-  ];
+    // {/*{ id: "xianXiang", label: "县以下提高", steps: 0, unit: 25 },*/}
+  ]
 }
-
 /* 海拔折算工龄补贴（与 DetailPanel calcAltitudeSubsidy 一致） */
 function calcAltitudeSubsidy(rows: AltRow[] | null | undefined, currentYear: number): number {
   const valid = (Array.isArray(rows) ? rows : []).filter(
@@ -263,6 +268,7 @@ const pLast = (p: Person) => p.history[p.history.length - 1];
 const INFO_COLS: QCol2[] = [
   { key: "id", label: "序号", mono: true, group: "基础信息", get: (p) => String(p.id) },
   { key: "name", label: "姓名", group: "基础信息", get: (p) => p.name },
+  { key: "idCard", label: "身份证号", mono: true, group: "基础信息", get: (p) => (p as Person & { idCard?: string | null }).idCard || "—" },
   { key: "gender", label: "性别", group: "基础信息", get: (p) => p.gender },
   { key: "birth", label: "出生年月", mono: true, group: "基础信息", get: (p) => p.birth },
   { key: "join", label: "参公时间", mono: true, group: "基础信息", get: (p) => p.join },
@@ -294,7 +300,7 @@ const WAGE_BASE_COLS: QCol2[] = [
   { key: "w_fiveYear", label: "五年浮动(金额)", mono: true, group: "基本工资", get: (_p, { salary }) => M2(salary.addons.find((a) => a.id === "fiveYear")?.amount ?? 0) },
   { key: "w_xueLiFixed", label: "学历固定(金额)", mono: true, group: "基本工资", get: (_p, { salary }) => M2(salary.addons.find((a) => a.id === "xueLiFixed")?.amount ?? 0) },
   { key: "w_nian20", label: "20年固定(金额)", mono: true, group: "基本工资", get: (_p, { salary }) => M2(salary.addons.find((a) => a.id === "nian20")?.amount ?? 0) },
-  { key: "w_xianXiang", label: "县以下提高(金额)", mono: true, group: "基本工资", get: (_p, { salary }) => M2(salary.addons.find((a) => a.id === "xianXiang")?.amount ?? 0) },
+  // {/*{ key: "w_xianXiang", label: "县以下提高(金额)", mono: true, group: "基本工资", get: (_p, { salary }) => M2(salary.addons.find((a) => a.id === "xianXiang")?.amount ?? 0) },*/}
   { key: "w_basicSubtotal", label: "基本工资小计", mono: true, group: "基本工资", get: (_p, { salary }) => M2(salary.basicSubtotal) },
 ];
 
@@ -361,8 +367,8 @@ function discoverCustomAllowLabels(ids: number[]): string[] {
   return [...CUSTOM_ALLOW_LABELS.filter((l) => !DEFAULT_ALLOWANCES.some((d) => d.label === l)), ...[...found]].filter((v, i, a) => a.indexOf(v) === i);
 }
 
-/* 默认显示列（初始 14 列，精简） */
-const DEFAULT_COLS = ["id", "name", "gender", "birth", "join", "position", "duty", "level", "curType", "unit", "tag", "employ", "w_duty", "w_level", "w_total"];
+/* 默认显示列（精简） */
+const DEFAULT_COLS = ["id", "name", "idCard", "gender", "birth", "join", "position", "duty", "level", "curType", "unit", "tag", "employ", "w_duty", "w_level", "w_total"];
 const LS_QCOLS = "gw_query_cols_v2";
 
 /* 需求4：人员全字段指纹（去掉编号与流水号，用于重复判定） */
@@ -376,8 +382,13 @@ function normPerson(p: unknown): string {
   } catch { return JSON.stringify(p); }
 }
 
-/* 轻量级：按身份核心字段判定为同一自然人（姓名 + 出生年月 + 身份） */
+/* 轻量级：按身份核心字段判定为同一自然人
+   身份证号优先（精确去重）；回退姓名+出生+身份组合。 */
 function personKey(p: Person): string {
+  const card = typeof (p as Person & { idCard?: string | null }).idCard === "string"
+    ? (p as Person & { idCard?: string | null }).idCard?.trim() ?? ""
+    : "";
+  if (card) return `CARD|${card}`;
   const n = (p.name ?? "").trim();
   const b = (p.birth ?? "").trim();
   const i = (p.identity ?? "").trim();
@@ -385,8 +396,10 @@ function personKey(p: Person): string {
 }
 interface ImportRow {
   person: Person;
+  inputs?: PersonInputs | null;
+  hasInputs: boolean;    // 含完整快照（测算参数/档次/海拔/考核），预览时图标标记
   isDup: boolean;
-  dupWith?: string; // 与库内哪位人员重复（姓名）
+  dupWith?: string;      // 与库内哪位人员重复（姓名）
 }
 
 /* 需求4：时间戳文件名 */
@@ -399,7 +412,7 @@ export function QueryModal({ persons, units, canEdit, onClose, onLocate, onToast
   persons: Person[]; units: Unit[]; canEdit: boolean; onClose: () => void;
   onLocate: (id: number) => void;
   onToast: (t: "success" | "error" | "info", m: string) => void;
-  onImport: (payload: { persons: Person[]; units?: Unit[] }) => void;
+  onImport: (payload: ParsedImportResult & { selectedIdx: number[] }) => void;
 }) {
   const [kw, setKw] = useState("");
   const [tag, setTag] = useState("all");
@@ -518,22 +531,24 @@ export function QueryModal({ persons, units, canEdit, onClose, onLocate, onToast
     else onToast("error", "复制失败，请手动选择文本");
   };
 
-  /* 需求4：人员导出（勾选人员的全部人工数据 + 单位） */
+  /* 【Spec】人员导出：仅输入项快照（不含系统推算结果 + 含 7 类 inputs） */
   const exportSel = () => {
     if (selIds.size === 0) { onToast("error", "请先在列表中勾选要导出的人员"); return; }
-    const list = persons.filter((p) => selIds.has(p.id)).map((p) => JSON.parse(JSON.stringify(p)) as Person);
-    const usedUnitIds = new Set(list.map((p) => p.unitId));
-    const payload = {
-      kind: "gw-salary-persons", version: 1, exportedAt: new Date().toLocaleString("zh-CN"),
-      units: units.filter((u) => usedUnitIds.has(u.id)),
-      persons: list,
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `人员导出_${fileStamp()}.json`; a.click();
-    URL.revokeObjectURL(url);
-    onToast("success", `已导出 ${list.length} 名人员（含历次任职情况等全部数据）`);
+    try {
+      const selected = persons.filter((p) => selIds.has(p.id));
+      const payload = buildExportPayload(selected, units, (k) => localStorage.getItem(k));
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `人员导出_${fileStamp()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      onToast("success", `已导出 ${selected.length} 名人员（输入项快照，不含系统推算结果）`);
+    } catch (err) {
+      console.error("[exportSel] failed", err);
+      onToast("error", "导出失败：浏览器环境异常");
+    }
   };
 
   /* ============ 人员导入预览弹窗相关 ============ */
@@ -541,54 +556,68 @@ export function QueryModal({ persons, units, canEdit, onClose, onLocate, onToast
     const f = e.target.files?.[0];
     e.target.value = "";
     if (!f) return;
-    let data: { persons?: Person[]; units?: Unit[] } | Person[];
-    try { data = JSON.parse(await f.text()); } catch { onToast("error", "导入失败：文件不是有效的 JSON"); return; }
-    const list = Array.isArray(data) ? data : data?.persons;
-    const fileUnits = Array.isArray((data as { units?: Unit[] })?.units) ? (data as { units?: Unit[] }).units : undefined;
-    if (!Array.isArray(list) || list.length === 0) { onToast("error", "导入失败：文件中没有人员数据"); return; }
+    let parsed: ParsedImportResult;
+    try {
+      const rawText = await f.text();
+      let raw: unknown;
+      try { raw = JSON.parse(rawText); } catch { onToast("error", "导入失败：文件不是有效的 JSON"); return; }
+      parsed = parseImportPayload(raw);
+    } catch {
+      onToast("error", "导入失败：读取文件失败"); return;
+    }
+    const list = parsed.persons as Array<Person & { inputs?: PersonInputs }>;
+    const fileUnits = parsed.units.length ? parsed.units : undefined;
+    if (!list.length) { onToast("error", "导入失败：文件中没有人员数据"); return; }
 
     /* 使用轻量身份字段构建库内人员查找表 */
     const keyMap = new Map<string, string>();
     persons.forEach((p) => keyMap.set(personKey(p), p.name));
 
-    /* 校验文件中每项为基本合法的 Person（必填字段兜底） */
-    const cleaned: Person[] = list
+    /* 校验文件中每项为基本合法的 Person（必填字段兜底），并对所有导入项调 stripOutputs 保证无输出项 */
+    const cleaned: Array<Person & { inputs?: PersonInputs }> = list
       .filter((x) => x && typeof x === "object")
-      .map((raw, idx) => ({
-        id: typeof (raw as Person).id === "number" ? (raw as Person).id : idx,
-        name: String((raw as Person).name ?? `未命名_${idx + 1}`),
-        gender: ((raw as Person).gender === "女" ? "女" : "男") as "男" | "女",
-        identity: String((raw as Person).identity ?? "公务员"),
-        leader: String((raw as Person).leader ?? ""),
-        birth: String((raw as Person).birth ?? ""),
-        edu: String((raw as Person).edu ?? ""),
-        studyYears: Number((raw as Person).studyYears) || 0,
-        tag: String((raw as Person).tag ?? "普通工改"),
-        employ: (["在职", "退休", "止薪"].includes((raw as Person).employ) ? (raw as Person).employ : "在职") as Employ,
-        unitId: String((raw as Person).unitId ?? "0001"),
-        position: String((raw as Person).position ?? ""),
-        join: String((raw as Person).join ?? ""),
-        gap: Number((raw as Person).gap) || 0,
-        unq: String((raw as Person).unq ?? ""),
-        tYears: Number((raw as Person).tYears) || 0,
-        curType: String((raw as Person).curType ?? ""),
-        tgLabels: Array.isArray((raw as Person).tgLabels) ? ((raw as Person).tgLabels as [string, string, string]) : ["", "", ""],
-        tgNow: (raw as Person).tgNow ?? { result: "", note: "" },
-        tgLow: (raw as Person).tgLow ?? { result: "", note: "" },
-        tgEdu: (raw as Person).tgEdu ?? { result: "", note: "" },
-        history: Array.isArray((raw as Person).history) ? (raw as Person).history : [],
-      }));
+      .map((raw, idx) => {
+        const p: Person = stripOutputs({
+          id: typeof (raw as Person).id === "number" ? (raw as Person).id : idx,
+          name: String((raw as Person).name ?? `未命名_${idx + 1}`),
+          idCard: typeof (raw as Person & { idCard?: unknown }).idCard === "string"
+            ? (raw as Person & { idCard?: string }).idCard
+            : null,
+          gender: ((raw as Person).gender === "女" ? "女" : "男") as "男" | "女",
+          identity: String((raw as Person).identity ?? "公务员"),
+          leader: String((raw as Person).leader ?? ""),
+          birth: String((raw as Person).birth ?? ""),
+          edu: String((raw as Person).edu ?? "大学本科毕业"),
+          studyYears: Number((raw as Person).studyYears) || 0,
+          tag: String((raw as Person).tag ?? "普通工改"),
+          employ: (["在职", "退休", "止薪"].includes((raw as Person).employ) ? (raw as Person).employ : "在职") as Employ,
+          unitId: String((raw as Person).unitId ?? "0001"),
+          position: String((raw as Person).position ?? ""),
+          join: String((raw as Person).join ?? ""),
+          gap: Number((raw as Person).gap) || 0,
+          unq: String((raw as Person).unq ?? "无考核记录"),
+          tYears: 0, curType: "待测算",
+          tgLabels: ["按现职套", "按低职套", "按学历套"],
+          tgNow: { result: "—", note: "待测算" },
+          tgLow: { result: "—", note: "待测算" },
+          tgEdu: { result: "—", note: "待测算" },
+          history: [],
+        } satisfies Person);
+        return { ...p, inputs: (raw as { inputs?: PersonInputs }).inputs ?? undefined } as Person & { inputs?: PersonInputs };
+      });
 
     if (cleaned.length === 0) { onToast("error", "导入失败：文件中人员数据格式无效"); return; }
 
-    /* 构建预览行 + 重复判定 */
+    /* 构建预览行 + 重复判定（hasInputs 标记含完整快照） */
     const rowsArr: ImportRow[] = cleaned.map((p) => {
       const k = personKey(p);
       const dupN = keyMap.get(k);
-      return { person: p, isDup: !!dupN, dupWith: dupN };
+      const inp = p.inputs as PersonInputs | undefined;
+      const hasInputs = !!(inp && typeof inp === "object" && (inp.params || inp.positionChanges?.length || inp.altChanges?.length || inp.reviews?.length || inp.gradeAddons?.length || inp.allowances?.length));
+      return { person: p, inputs: inp ?? null, hasInputs, isDup: !!dupN, dupWith: dupN };
     });
 
-    /* 默认勾选：全部不重复的人员；重复人员不勾选 */
+    /* 默认勾选：全部不重复的人员；重复人员不勾选（默认不覆盖，避免误覆盖已有手改） */
     const defaultSel = new Set<number>();
     rowsArr.forEach((r, i) => { if (!r.isDup) defaultSel.add(i); });
 
@@ -617,18 +646,26 @@ export function QueryModal({ persons, units, canEdit, onClose, onLocate, onToast
     else setImpSel(new Set(impRows.map((_, i) => i)));
   };
 
-  /* 确认导入（仅勾选的人员） */
+  /* 确认导入（仅勾选的人员） — 将 V1/V2 解析结果、附带单位、勾选下标、导入行 inputs 透传给 App.tsx */
   const confirmImp = () => {
-    const chosen: Person[] = [];
-    impSel.forEach((i) => {
-      const r = impRows[i];
-      if (r) chosen.push(r.person);
-    });
-    if (chosen.length === 0) {
+    const chosenIdx: number[] = [];
+    impSel.forEach((i) => { if (impRows[i]) chosenIdx.push(i); });
+    if (chosenIdx.length === 0) {
       onToast("info", "未勾选任何人员，已取消导入");
       return;
     }
-    onImport({ persons: chosen, units: impUnits });
+    // 重建 ParsedImportResult（其中 persons 只保留勾选且已清洗的 Person；inputs 在各自对象上）
+    const chosen: Array<Person & { inputs?: PersonInputs }> = chosenIdx.map((i) => {
+      const r = impRows[i];
+      const base = r.person as Person & { inputs?: PersonInputs };
+      if (r.inputs) base.inputs = r.inputs;
+      return base;
+    });
+    const isV2 = impRows.some((r) => r.hasInputs || !!r.inputs);
+    const base: ParsedImportResult = isV2
+      ? { version: 2, units: impUnits ?? [], persons: chosen }
+      : { version: 1, units: impUnits ?? [], persons: chosen as Person[] };
+    onImport({ ...base, selectedIdx: chosenIdx });
     cancelImp();
   };
 
@@ -805,13 +842,14 @@ export function QueryModal({ persons, units, canEdit, onClose, onLocate, onToast
                   <th className="tbl-head px-2.5 py-1.5 text-left w-[108px]">出生</th>
                   <th className="tbl-head px-2.5 py-1.5 text-left">单位</th>
                   <th className="tbl-head px-2.5 py-1.5 text-left w-[110px]">职务</th>
+                  <th className="tbl-head px-2.5 py-1.5 text-center w-[60px]">含参数</th>
                   <th className="tbl-head px-2.5 py-1.5 text-left w-[90px]">状态</th>
                   <th className="tbl-head px-2.5 py-1.5 text-left w-[120px]">重复提示</th>
                 </tr>
               </thead>
               <tbody>
                 {impRows.length === 0 && (
-                  <tr><td colSpan={9} className="px-3 py-8 text-center text-[var(--tx-3)]">暂无待导入人员</td></tr>
+                  <tr><td colSpan={10} className="px-3 py-8 text-center text-[var(--tx-3)]">暂无待导入人员</td></tr>
                 )}
                 {impRows.map((r, i) => {
                   const p = r.person;
@@ -834,6 +872,15 @@ export function QueryModal({ persons, units, canEdit, onClose, onLocate, onToast
                         {unitName(p.unitId) || <span className="text-[var(--tx-3)]">[{p.unitId}]</span>}
                       </td>
                       <td className="px-2.5 py-1.5 text-[var(--tx-2)] truncate max-w-[130px]" title={p.position}>{p.position || "—"}</td>
+                      <td className="px-2.5 py-1.5 text-center">
+                        {r.hasInputs ? (
+                          <span title="含完整输入项快照（测算参数/档次/津贴等）" className="inline-flex items-center gap-1 text-[10.5px] px-1.5 py-[3px] rounded border border-[rgba(48,209,88,.55)] bg-[rgba(48,209,88,.1)] text-[#30d158]">
+                            <Icon name="check" size={10} />快照
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-[var(--tx-3)]">—</span>
+                        )}
+                      </td>
                       <td className="px-2.5 py-1.5">
                         <span className="flex items-center gap-1 w-fit text-[10.5px] px-1.5 py-[3px] rounded border" style={{
                           color: EMPLOY_META[p.employ as Employ]?.dot ?? "#30d158",
@@ -1140,6 +1187,192 @@ export function RollingModal({ person, onClose }: { person: Person; onClose: () 
   );
 }
 
+/* ================= 工资业务预测 ================= */
+
+interface FcRow {
+  person: Person;
+  reason: string;  // 当年变动原因（同年多项以"、"连接，一人一行）
+  duty: string;    // 变动后职务/职级
+  level: number;   // 变动后级别
+  grade: number;   // 变动后档次
+}
+
+/* 原因文案映射：五年晋级→五年晋升级别；两年晋档→两年晋升级别档次 */
+const fcReason = (r: string) =>
+  r.replace(/五年晋级/g, "五年晋升级别").replace(/两年晋档/g, "两年晋升级别档次");
+
+/* 以每人现有输入数据为准：优先读取已保存测算参数（职务变化按已录入列表执行），否则按档案推导 */
+function loadFcParams(p: Person): CalcRunInput {
+  try {
+    const raw = localStorage.getItem(`gw_calc_v1_${p.id}`);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      if (saved?.params?.type) {
+        const params = saved.params as CalcRunInput;
+        /* 防御：旧存档可能缺 positionChanges */
+        return { ...params, positionChanges: Array.isArray(params.positionChanges) ? params.positionChanges : [] };
+      }
+    }
+  } catch { /* ignore */ }
+  return deriveParams(p);
+}
+
+export function ForecastModal({ persons, units, onClose, onLocate, onToast }: {
+  persons: Person[]; units: Unit[]; onClose: () => void;
+  onLocate: (id: number) => void;
+  onToast: (t: "success" | "error" | "info", m: string) => void;
+}) {
+  const NOW = new Date().getFullYear();
+  /* 年份备选：当前年份-10 ～ 当前年份+10；默认选中下一年 */
+  const YEAR_OPTS = useMemo(() => Array.from({ length: 21 }, (_, i) => NOW - 10 + i), [NOW]);
+  const [year, setYear] = useState(NOW + 1);
+  const [rows, setRows] = useState<FcRow[]>([]);
+
+  /* 名单筛选 / 排序：完全复用左侧人员名单的筛选/排序控件与逻辑 */
+  const [view, setView] = useState<Person[]>(persons);
+  const onView = useCallback((v: Person[]) => setView(v), []);
+
+  const forecast = useCallback((y: number) => {
+    const out: FcRow[] = [];
+    for (const p of persons) {
+      let res: CalcRunResult;
+      try { res = runCalculation({ ...loadFcParams(p), endYear: y }); } catch { continue; }
+      /* 提取预测当年发生变动的演变行（year 形如 "2027-01" / "2027-07"） */
+      const inYear = res.evolution.filter((r) => typeof r.year === "string" && r.year.startsWith(`${y}-`));
+      if (!inYear.length) continue;
+      const last = inYear[inYear.length - 1];
+      const reasons: string[] = [];
+      inYear.forEach((r) => String(r.reason).split("、").forEach((seg) => {
+        const lab = fcReason(seg.trim());
+        if (lab && !reasons.includes(lab)) reasons.push(lab);
+      }));
+      out.push({ person: p, reason: reasons.join("、"), duty: last.duty, level: last.level, grade: last.grade });
+    }
+    setRows(out);
+  }, [persons]);
+
+  /* 打开时按默认年份（下一年）自动预测一次；点击「预测」后按所选年份刷新名单 */
+  useEffect(() => {
+    forecast(NOW + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* 筛选 / 排序作用于预测名单 */
+  const viewIds = useMemo(() => new Set(view.map((p) => p.id)), [view]);
+  const shown = useMemo(() => rows.filter((r) => viewIds.has(r.person.id)), [rows, viewIds]);
+
+  /* 左下角复制按钮（TSV 到剪贴板，含 execCommand 降级） */
+  const copyRows = async () => {
+    if (!shown.length) { onToast("info", "当前无预测名单可复制"); return; }
+    let text = "序号\t姓名\t变动原因\t职务/职级\t级别\t档次\n";
+    shown.forEach((r, i) => {
+      text += `${i + 1}\t${r.person.name}\t${r.reason}\t${r.duty}\t${r.level}级\t${r.grade}档\n`;
+    });
+    const legacyCopy = () => {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.cssText = "position:fixed;opacity:0;pointer-events:none";
+      document.body.appendChild(ta);
+      ta.focus(); ta.select();
+      let ok = false;
+      try { ok = document.execCommand("copy"); } catch { ok = false; }
+      document.body.removeChild(ta);
+      return ok;
+    };
+    let done = false;
+    try { await navigator.clipboard.writeText(text); done = true; } catch { done = false; }
+    if (!done) done = legacyCopy();
+    if (done) onToast("success", `已复制 ${shown.length} 名人员的预测名单到剪贴板`);
+    else onToast("error", "复制失败，请手动选择文本");
+  };
+
+  return (
+    <Modal title="工资业务预测" icon="forecast" onClose={onClose} w={860} allowFullscreen
+      footer={
+        <>
+          {/* 左下角复制按钮 */}
+          <div className="mr-auto flex items-center gap-2">
+            <Btn onClick={copyRows}><span className="flex items-center gap-1"><Icon name="copy" size={12} />复制</span></Btn>
+          </div>
+          <span className="text-[11px] text-[var(--tx-3)]">
+            <b className="font-mono2 text-[var(--tx-2)]">{year}</b> 年变动 <b className="font-mono2 text-[var(--tx-2)]">{shown.length}</b> 人
+            {shown.length !== rows.length && <>（共 {rows.length} 人）</>}
+          </span>
+          <Btn onClick={onClose}>关闭</Btn>
+        </>
+      }>
+      {/* 左上角：预测年份选择框 + 预测按钮 */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <label className="flex items-center gap-1.5 text-[12px] text-[var(--tx-2)] shrink-0">
+          预测年份
+          <select value={year} onChange={(e) => setYear(Number(e.target.value))}
+            className="field h-8 w-[104px] px-2 font-mono2 text-[12.5px]">
+            {YEAR_OPTS.map((y) => <option key={y} value={y}>{y}年</option>)}
+          </select>
+        </label>
+        <Btn kind="primary" onClick={() => forecast(year)}>
+          <span className="flex items-center gap-1"><Icon name="forecast" size={12} />预测</span>
+        </Btn>
+        <span className="text-[10.5px] text-[var(--tx-3)] ml-1">职务变化按已录入列表执行；未录入考核的年份视同称职</span>
+      </div>
+
+      {/* 名单筛选 / 排序（复用左侧人员名单控件） */}
+      <div className="mt-2.5">
+        <PersonFilterSort persons={persons} units={units} onView={onView} />
+      </div>
+
+      {/* 预测名单（样式参照「工资演变明细」） */}
+      <div className="mt-3 rounded-lg border border-[var(--line)] overflow-hidden">
+        <div className="max-h-[380px] overflow-auto">
+          <table className="w-full text-[12px] border-collapse">
+            <thead>
+              <tr>
+                <th className="tbl-head px-2.5 py-1.5 text-right w-[52px]">序号</th>
+                <th className="tbl-head px-2.5 py-1.5 text-left w-[92px]">姓名</th>
+                <th className="tbl-head px-2.5 py-1.5 text-left">变动原因</th>
+                <th className="tbl-head px-2.5 py-1.5 text-left">职务/职级</th>
+                <th className="tbl-head px-2.5 py-1.5 text-right w-[60px]">级别</th>
+                <th className="tbl-head px-2.5 py-1.5 text-right w-[60px]">档次</th>
+                <th className="tbl-head px-2 py-1.5 text-center w-[56px]">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.length === 0 && (
+                <tr><td colSpan={7} className="px-3 py-10 text-center text-[var(--tx-3)]">
+                  <Icon name="forecast" size={20} className="mx-auto mb-2 text-[var(--tx-3)]" />
+                  {rows.length === 0 ? `${year} 年无人员发生级别 / 档次 / 职务变动` : "当前筛选条件下无人员"}
+                </td></tr>
+              )}
+              {shown.map((r, i) => (
+                <tr key={r.person.id}
+                  className={`border-b border-[var(--line-2)] transition-colors ${i % 2 === 1 ? "bg-[var(--hov)]" : "hover:bg-[var(--sel)]"}`}>
+                  <td className="px-2.5 py-1.5 text-right font-mono2 text-[var(--tx-3)]">{i + 1}</td>
+                  <td className="px-2.5 py-1.5 text-[var(--tx-1)] font-medium whitespace-nowrap">{r.person.name}</td>
+                  <td className="px-2.5 py-1.5 text-[var(--tx-1)] whitespace-nowrap">{r.reason}</td>
+                  <td className="px-2.5 py-1.5 text-[var(--tx-2)] whitespace-nowrap">{r.duty}</td>
+                  <td className="px-2.5 py-1.5 text-right font-mono2 text-[var(--tx-1)]">{r.level}</td>
+                  <td className="px-2.5 py-1.5 text-right font-mono2 text-[var(--tx-1)]">{r.grade}</td>
+                  <td className="px-2 py-1.5 text-center">
+                    <button onClick={() => onLocate(r.person.id)}
+                      title="关闭预测窗口并定位到该人员"
+                      className="text-[11px] px-3.5 py-1 whitespace-nowrap rounded-md border border-[rgba(10,132,255,.45)] text-[var(--acc)] hover:bg-[var(--sel)] transition">
+                      定位
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <p className="mt-2 text-[10.5px] text-[var(--tx-3)] flex items-center gap-1">
+        <Icon name="info" size={11} />
+        以每人现有输入数据（含职务变化列表）用滚动计算引擎推演至所选年份，仅列出该年发生「五年晋升级别 / 两年晋升级别档次 / 职务晋升」等变动的人员，显示变动后的取值；点击「定位」可跳转至左侧名单中的该人员。
+      </p>
+    </Modal>
+  );
+}
+
 /* ================= 删除确认 ================= */
 export function ConfirmDeleteModal({ person, onCancel, onConfirm }: {
   person: Person; onCancel: () => void; onConfirm: () => void;
@@ -1372,7 +1605,7 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
 
       <div className="mt-3 flex items-center gap-2 text-[10.5px] text-[var(--tx-3)]">
         <Logo size={14} />
-        <span className="font-mono2">V8.2 · BUILD 2026.01 · 数据基准：国办发〔2006〕22号 / 〔2015〕3号</span>
+        <span className="font-mono2">V8.2 · BUILD 2026.08 · 数据基准：国办发〔2006〕22号 / 藏政发〔2007〕9号</span>
       </div>
     </Modal>
   );
@@ -1480,37 +1713,74 @@ export function TaogaiModal({ person, results, onClose }: {
 /* ================= 新增人员（需求7） ================= */
 const joinYears = Array.from({ length: 2026 - 1950 + 1 }, (_, i) => 1950 + i).reverse();
 
-export function PersonAddModal({ units, nextId, onClose, onAdd }: {
+export function PersonAddModal({ units, nextId, onClose, onAdd, editingPerson }: {
   units: Unit[]; nextId: number; onClose: () => void;
   onAdd: (p: Person) => void;
+  /** UI-T2：编辑模式入口——传入 Person 则所有表单字段预填，submit 保持原 id 并回写 idCard/basic 字段 */
+  editingPerson?: Person | null;
 }) {
-  const [step, setStep] = useState<1 | 2>(1);
-  const [joinYear, setJoinYear] = useState(2010);
-  const [form, setForm] = useState({
-    name: "", gender: "男" as "男" | "女", identity: "公务员",
-    birth: "1990年1月", unitId: units[0]?.id ?? "0001",
-  });
+  const [step, setStep] = useState<1 | 2>(editingPerson ? 2 : 1);
+  // 如果是编辑模式：用 editingPerson.birth 里的年份回显 joinYear；若 birth 非 "{Y}年{M}" 格式则取参工 join 前 4 位
+  const initialJoinYear = editingPerson
+    ? (() => {
+        const j = /^(\d{4})/.exec(editingPerson.join || "");
+        const b = /^\s*(\d{4})/.exec(editingPerson.birth || "");
+        const y = j ? Number(j[1]) : b ? Number(b[1]) : 2010;
+        return Number.isFinite(y) ? y : 2010;
+      })()
+    : 2010;
+  const [joinYear, setJoinYear] = useState(initialJoinYear);
+  const [form, setForm] = useState(() => ({
+    name: editingPerson?.name ?? "",
+    gender: (editingPerson?.gender as "男" | "女") ?? "男",
+    identity: editingPerson?.identity ?? "公务员",
+    birth: editingPerson?.birth ?? "1990年1月",
+    unitId: editingPerson?.unitId ?? (units[0]?.id ?? "0001"),
+    /* UI-T1：新增人员第二步——身份证号 */
+    idCard: (editingPerson as Person & { idCard?: string | null })?.idCard ?? "",
+  }));
 
   const isPre2006 = joinYear < 2006;
 
   const submit = () => {
     if (!form.name.trim()) return;
     onAdd(makePerson({
-      id: nextId, name: form.name.trim(), gender: form.gender, identity: form.identity,
+      id: editingPerson?.id ?? nextId,
+      name: form.name.trim(), gender: form.gender, identity: form.identity,
       unitId: form.unitId, birth: form.birth,
       join: `${joinYear}年7月`, startYear: joinYear, isPre2006,
+      idCard: form.idCard.trim() ? form.idCard.trim() : null,
+      /* 编辑模式：保持原 employ/tag/edu/gap/unq/studyYears/leader 等已有字段（makePerson 签名内取 defaults 会覆盖为默认 → 所以传 editingPerson 原字段） */
+      ...(editingPerson
+        ? { employ: editingPerson.employ, tag: editingPerson.tag, edu: editingPerson.edu,
+            gap: editingPerson.gap, unq: editingPerson.unq, studyYears: editingPerson.studyYears,
+            leader: editingPerson.leader, position: editingPerson.position,
+            tgLabels: editingPerson.tgLabels, tgNow: editingPerson.tgNow, tgLow: editingPerson.tgLow, tgEdu: editingPerson.tgEdu,
+            curType: editingPerson.curType, tYears: editingPerson.tYears, history: editingPerson.history,
+          }
+        : {}),
     }));
   };
 
   const sel = "field w-full h-8 px-2 text-[12px]";
 
   return (
-    <Modal title={step === 1 ? "人员增加 · 第一步" : "人员增加 · 第二步"} icon="user" onClose={onClose} w={440}
+    <Modal
+      title={editingPerson
+        ? (step === 1 ? "修改人员 · 第一步" : "修改人员")
+        : (step === 1 ? "人员增加 · 第一步" : "人员增加 · 第二步")}
+      icon="user" onClose={onClose} w={480}
       footer={
         step === 1 ? (
           <><Btn onClick={onClose}>取消</Btn><Btn kind="primary" onClick={() => setStep(2)}>确定</Btn></>
         ) : (
-          <><Btn onClick={() => setStep(1)}>上一步</Btn><Btn kind="primary" onClick={submit} disabled={!form.name.trim()}>保存人员</Btn></>
+          <>
+            {editingPerson ? null : <Btn onClick={() => setStep(1)}>上一步</Btn>}
+            <Btn onClick={onClose}>取消</Btn>
+            <Btn kind="primary" onClick={submit} disabled={!form.name.trim()}>
+              {editingPerson ? "保存修改" : "保存人员"}
+            </Btn>
+          </>
         )
       }>
       {step === 1 ? (
@@ -1535,10 +1805,20 @@ export function PersonAddModal({ units, nextId, onClose, onAdd }: {
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-2.5">
-          <label className="block text-[11px] text-[var(--tx-2)] col-span-2">
+          <label className="block text-[11px] text-[var(--tx-2)]">
             姓名
             <input autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
               placeholder="请输入姓名" className="field mt-1 w-full h-8 px-2.5 text-[12.5px]" />
+          </label>
+          {/* UI-T1：身份证号输入框（姓名右侧，非必填） */}
+          <label className="block text-[11px] text-[var(--tx-2)]">
+            <span className="inline-flex items-center gap-1">
+              身份证号
+              <span className="text-[9.5px] text-[var(--tx-3)] font-normal">(非必填)</span>
+            </span>
+            <input value={form.idCard} onChange={(e) => setForm({ ...form, idCard: e.target.value })}
+              placeholder="18 位身份证号" maxLength={18}
+              className="field mt-1 w-full h-8 px-2.5 text-[12px] font-mono2 tracking-wide" />
           </label>
           <label className="block text-[11px] text-[var(--tx-2)]">
             性别
@@ -1562,10 +1842,12 @@ export function PersonAddModal({ units, nextId, onClose, onAdd }: {
               {units.map((u) => <option key={u.id} value={u.id}>[{u.id}] {u.name}</option>)}
             </select>
           </label>
+          {/*
           <div className="col-span-2 flex items-start gap-2 rounded-md border border-dashed border-[var(--line)] bg-[var(--bg-3)] px-2.5 py-2 text-[10.5px] text-[var(--tx-3)] leading-relaxed">
             <Icon name="info" size={13} className="text-[var(--acc)] shrink-0 mt-px" />
             <span>无需填写职务——保存后在详情页「职务变化情况」中维护，系统自动取最新一条作为现任职务。</span>
           </div>
+          */}
           <div className="col-span-2 rounded-lg border border-[var(--line)] bg-[var(--bg-3)] px-3 py-2 text-[11px] text-[var(--tx-2)] flex items-center gap-2">
             <Icon name="info" size={13} className="text-[var(--acc)]" />
             参加工作时间 <b className="font-mono2">{joinYear} 年</b> · 类型 <b>{isPre2006 ? "2006年前参公（套改）" : "2006年后参公"}</b>

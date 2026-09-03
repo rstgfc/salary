@@ -17,7 +17,7 @@ const DEFAULT_ADDONS: AddonItem[] = [
   { id: "fiveYear", label: "五年浮动", steps: 0, unit: 25 },
   { id: "xueLiFixed", label: "学历固定", steps: 0, unit: 25 },
   { id: "nian20", label: "20年固定", steps: 0, unit: 25 },
-  { id: "xianXiang", label: "县以下提高", steps: 0, unit: 25 },
+  // { id: "xianXiang", label: "县以下提高", steps: 0, unit: 25 },
 ];
 
 /* 需求2：档位上限（五年浮动/县以下提高最多1档；学历固定/20年固定最多4档，超过不再增加） */
@@ -44,7 +44,7 @@ function defaultAddons(above: boolean, workYears: number): AddonItem[] {
     { id: "fiveYear", label: "五年浮动", steps: ruleSteps("fiveYear", above, workYears), unit: 25 },
     { id: "xueLiFixed", label: "学历固定", steps: ruleSteps("xueLiFixed", above, workYears), unit: 25 },
     { id: "nian20", label: "20年固定", steps: ruleSteps("nian20", above, workYears), unit: 25 },
-    { id: "xianXiang", label: "县以下提高", steps: 0, unit: 25 },
+    // { id: "xianXiang", label: "县以下提高", steps: 0, unit: 25 },
   ];
 }
 
@@ -64,7 +64,7 @@ const itemsKey = (id: number) => `gw_salary_items_v1_${id}`;
 
 /* ---------- 单行 ---------- */
 function Row({ label, detail, amount, bold, accent, editable, canEdit, onAmount }: {
-  label: React.ReactNode; detail: React.ReactNode; amount: number;
+  label: React.ReactNode; detail: React.ReactNode; amount: number | null;
   bold?: boolean; accent?: boolean; editable?: boolean; canEdit: boolean;
   onAmount?: (v: number) => void;
 }) {
@@ -72,7 +72,9 @@ function Row({ label, detail, amount, bold, accent, editable, canEdit, onAmount 
     <div className={`flex items-center gap-2 px-3 py-[7px] ${bold ? "bg-[var(--sel)]" : ""}`}>
       <span className={`text-[12px] ${bold ? "font-bold text-[var(--acc)]" : accent ? "text-[var(--tx-1)] font-medium" : "text-[var(--tx-1)]"}`}>{label}</span>
       <span className="ml-auto text-[11px] text-[var(--tx-2)] font-mono2 whitespace-nowrap">{detail}</span>
-      {editable && canEdit ? (
+      {amount === null ? (
+        <span className="shrink-0 font-mono2 text-[11px] text-[var(--tx-3)]">—</span>
+      ) : editable && canEdit ? (
         <span className="flex items-center gap-0.5 shrink-0">
           <span className="text-[10.5px] text-[var(--tx-3)]">¥</span>
           <input
@@ -124,7 +126,7 @@ export function SalaryPanel({ personId, results, latestDutyIndex, canEdit, onToa
           if (AUTO_IDS.includes(d.id)) return { ...d };
           const s = savedAddons.find((a) => a && a.id === d.id);
           if (!s) return d;
-          if (!saved.v2 && d.id === "xianXiang") return { ...d }; // 旧版默认1档，新规则默认0档
+          // if (!saved.v2 && d.id === "xianXiang") return { ...d }; // 旧版默认1档，新规则默认0档
           return { ...d, steps: clampSteps(d.id, s.steps) };
         });
         const ws = Array.isArray(saved.allowances) && saved.allowances.length ? saved.allowances : DEFAULT_ALLOWANCES;
@@ -179,25 +181,28 @@ export function SalaryPanel({ personId, results, latestDutyIndex, canEdit, onToa
   /* ---------- 计算 ---------- */
   const dutyLabel = POLICY_CONFIG.getLabel(latestDutyIndex);
   const dutyWage = useMemo(() => dutyWage2006(latestDutyIndex), [latestDutyIndex]);
-  const finalLevel = results?.finalLevel ?? 25;
-  const finalGrade = results?.finalGrade ?? 2;
-  const levelGrade = `${finalLevel}-${finalGrade}`;
+  // Spec: 导入后仅完成 inputs 落盘，未测算前 results===null → 面板展示占位，避免展示 25-2 档的虚假结论
+  const hasResult = !!results;
+  const finalLevel = results?.finalLevel ?? 0;
+  const finalGrade = results?.finalGrade ?? 0;
+  const levelGrade = hasResult ? `${finalLevel}-${finalGrade}` : "待测算";
   const levelWage = useMemo(() => Calculator.getSalary(finalLevel, finalGrade), [finalLevel, finalGrade]);
 
   /* 需求11：一个档差 = 当前级别工资相邻两档之差 */
   const gradeStep = useMemo(() => {
+    if (!hasResult) return 0;
     const cur = Calculator.getSalary(finalLevel, finalGrade);
     const next = Calculator.getSalary(finalLevel, finalGrade + 1);
     if (next > cur) return next - cur;
     const prev = Calculator.getSalary(finalLevel, finalGrade - 1);
     return cur > prev ? cur - prev : 0;
-  }, [finalLevel, finalGrade]);
+  }, [hasResult, finalLevel, finalGrade]);
 
   /* 需求11：各加项每档金额 = 一个档差；合计档数叠加到级别档次上 */
   const extraSteps = addons.reduce((s, a) => s + a.steps, 0);
-  const addonsTotal = extraSteps * gradeStep;
-  const basicSubtotal = dutyWage + levelWage + addonsTotal;
-  const displayGrade = finalGrade + extraSteps;
+  const addonsTotal = hasResult ? extraSteps * gradeStep : 0;
+  const basicSubtotal = hasResult ? dutyWage + levelWage + addonsTotal : 0;
+  const displayGrade = hasResult ? finalGrade + extraSteps : 0;
 
   /* 需求6：津贴里的"折算工龄补贴"由海拔累计驱动 */
   /* 西藏特殊津贴：倍数=基本工资小计×类区系数（二类1.4/三类1.7/四类2.0）；绝对额=数据库对照表 */
@@ -229,14 +234,16 @@ export function SalaryPanel({ personId, results, latestDutyIndex, canEdit, onToa
       {/* 职务 + 工资合计摘要行 */}
       <div className="shrink-0 flex items-center gap-2 px-3.5 py-2 border-b border-[var(--line)] bg-[var(--bg-2)]">
         <span className="text-[11.5px] text-[var(--tx-2)]">职务：<b className="text-[var(--tx-1)] font-medium">{dutyLabel}</b></span>
-        <span className="ml-auto font-mono2 text-[12.5px] font-bold text-[var(--acc)]">{fmt(total)}元</span>
+        <span className="ml-auto font-mono2 text-[12.5px] font-bold text-[var(--acc)]">
+          {hasResult ? `${fmt(total)}元` : <span className="text-[var(--tx-3)] text-[11px]">未测算</span>}
+        </span>
       </div>
 
       {/* 列表 */}
       <div className="flex-1 min-h-0 overflow-y-auto py-1.5">
         <p className="px-3 pt-1 pb-1 text-[10px] font-semibold text-[var(--tx-3)] tracking-wide">基本工资</p>
-        <Row label="职务" detail={dutyLabel} amount={dutyWage} canEdit={canEdit} />
-        <Row label="级别" detail={levelGrade} amount={levelWage} canEdit={canEdit} />
+        <Row label="职务" detail={dutyLabel} amount={hasResult ? dutyWage : null} canEdit={canEdit} />
+        <Row label="级别" detail={levelGrade} amount={hasResult ? levelWage : null} canEdit={canEdit} />
         {addons.map((a) => (
           <div key={a.id} className="flex items-center gap-2 px-3 py-[7px]">
             <span className="text-[12px] text-[var(--tx-1)]">{a.label}</span>
@@ -253,20 +260,23 @@ export function SalaryPanel({ personId, results, latestDutyIndex, canEdit, onToa
               )}
               <span className="text-[11px] text-[var(--tx-2)]">档</span>
             </span>
-            <span className="shrink-0 font-mono2 text-[11.5px] text-[var(--tx-1)] w-[56px] text-right">{fmt(a.steps * gradeStep)}元</span>
+            <span className="shrink-0 font-mono2 text-[11.5px] text-[var(--tx-1)] w-[56px] text-right">
+              {hasResult ? `${fmt(a.steps * gradeStep)}元` : <span className="text-[var(--tx-3)]">—</span>}
+            </span>
           </div>
         ))}
-        <Row label="基本工资小计" detail={`${finalLevel}-${displayGrade}（以上合计）`} amount={basicSubtotal} accent canEdit={canEdit} />
+        <Row label="基本工资小计" detail={hasResult ? `${finalLevel}-${displayGrade}（以上合计）` : "待测算"} amount={hasResult ? basicSubtotal : null} accent canEdit={canEdit} />
 
         <Divider />
 
+        {/* 津贴项 */}
         <p className="px-3 pt-1 pb-1 text-[10px] font-semibold text-[var(--tx-3)] tracking-wide">津贴补贴</p>
         {effectiveAllowances.map((a) => (
           <Row
             key={a.id}
             label={a.label}
             detail={a.detail}
-            amount={a.amount}
+            amount={hasResult ? a.amount : null}
             editable={a.id !== "zheSuan" && a.id !== "xzMulti" && a.id !== "xzAbs"}
             canEdit={canEdit}
             onAmount={(v) => setAllowanceAmount(a.id, v)}

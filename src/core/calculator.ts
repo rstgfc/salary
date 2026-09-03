@@ -59,6 +59,7 @@ const POSITION_OPTIONS: PositionOption[] = [
 
 function getLabel(value: number): string {
   for (const o of POSITION_OPTIONS) if (o.value === value) return o.label;
+  if (RANK_LABELS[value]) return RANK_LABELS[value];
   return "未知";
 }
 
@@ -302,22 +303,22 @@ export const DUTY_VALUES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 export const LOWER_DUTY_OPTIONS = ["无", ...DUTY_OPTIONS];
 export const LOWER_DUTY_VALUES = [0, ...DUTY_VALUES];
 
-/* 职务变动可选：职务 + 职级（职级 101 起；需求3：职级从上而下为 二级科员 → 一级巡视员） */
+/* 职务变动可选：职务 + 职级（职级 100 起；需求3：职级从上而下为 二级科员 → 一级巡视员） */
 export const POSITION_PICKER_LABELS = [
   ...DUTY_OPTIONS,
   "二级科员", "一级科员", "四级主任科员", "三级主任科员", "二级主任科员", "一级主任科员",
-  "四级调研员", "三级调研员", "二级调研员", "一级调研员", "二级巡视员",
+  "四级调研员", "三级调研员", "二级调研员", "一级调研员", "二级巡视员", "一级巡视员",
 ];
 export const POSITION_PICKER_VALUES = [
-  ...DUTY_VALUES, 111, 110, 109, 108, 107, 106, 105, 104, 103, 102, 101,
+  ...DUTY_VALUES, 111, 110, 109, 108, 107, 106, 105, 104, 103, 102, 101, 100,
 ];
 
 export const RANK_LABELS: Record<number, string> = {
-  101: "二级巡视员", 102: "一级调研员", 103: "二级调研员", 104: "三级调研员", 105: "四级调研员",
+  100: "一级巡视员", 101: "二级巡视员", 102: "一级调研员", 103: "二级调研员", 104: "三级调研员", 105: "四级调研员",
   106: "一级主任科员", 107: "二级主任科员", 108: "三级主任科员", 109: "四级主任科员", 110: "一级科员", 111: "二级科员",
 };
 export const RANK_LEVELS: Record<number, LG> = {
-  101: { level: 13, grade: 6 }, 102: { level: 15, grade: 5 }, 103: { level: 16, grade: 6 },
+  100: { level: 12, grade: 6 }, 101: { level: 13, grade: 6 }, 102: { level: 15, grade: 5 }, 103: { level: 16, grade: 6 },
   104: { level: 17, grade: 7 }, 105: { level: 18, grade: 8 }, 106: { level: 19, grade: 7 },
   107: { level: 20, grade: 8 }, 108: { level: 21, grade: 8 }, 109: { level: 22, grade: 9 },
   110: { level: 24, grade: 9 }, 111: { level: 25, grade: 9 },
@@ -365,6 +366,48 @@ export function latestDutyLabel(p: Person): string {
   const inp = PERSON_CALC_INPUTS[p.id];
   if (inp) return getLabel(POLICY_CONFIG.getNextDuty(inp.currentDuty));
   return p.position.replace(/（.*?）/g, "").trim() || "待测算";
+}
+
+/* ---------------- 默认测算参数推导（DetailPanel 与业务预测共用） ---------------- */
+
+/* 初始化职务变化列表（DetailPanel 与业务预测共用） */
+export function buildInitList(type: CalcType, startYear: number, currentDutyIndex: number, currentDutyYear: number, educationIndex: number): PosChange[] {
+  if (type === "pre2006") {
+    const di = DUTY_VALUES[currentDutyIndex];
+    /* 需求10：第一条职务变化默认 2008 年 */
+    return [{ year: 2008, dutyIndex: POLICY_CONFIG.getNextDuty(di), reason: "职务晋升" }];
+  }
+  const eduVal = EDUCATION_VALUES[educationIndex];
+  const ec = POLICY_CONFIG.EDUCATION[eduVal];
+  return [{ year: (startYear || 2007) + 1, dutyIndex: ec.probation.dutyIndex, reason: "转正定级", isInitial: true }];
+}
+
+/** 从人员档案推导默认测算参数（无保存测算时兜底，与 DetailPanel 口径一致） */
+export function deriveParams(p: Person): CalcRunInput {
+  const exist = PERSON_CALC_INPUTS[p.id];
+  if (exist) {
+    const cdi = DUTY_VALUES.indexOf(exist.currentDuty);
+    return {
+      type: "pre2006", startYear: exist.startYear, educationIndex: exist.educationIndex,
+      deductYears: exist.deductYears, currentDutyIndex: cdi, currentDutyYear: exist.currentDutyYear,
+      lowerDutyIndex: LOWER_DUTY_VALUES.indexOf(exist.lowerDuty), lowerDutyYear: exist.lowerDutyYear,
+      positionChanges: buildInitList("pre2006", exist.startYear, cdi, exist.currentDutyYear, exist.educationIndex),
+      endYear: new Date().getFullYear(),
+    };
+  }
+  const startYear = parseInt(p.join, 10) || 2010;
+  const type: CalcType = startYear < 2006 ? "pre2006" : "post2006";
+  const dutyName = p.position.replace(/（.*?）/g, "").trim();
+  const di = dutyName ? dutyIndexByName(dutyName) : null;
+  const cdi = di ? Math.max(0, DUTY_VALUES.indexOf(di)) : 1;
+  const eduIdx = p.edu.includes("研究") ? 0 : p.edu.includes("本科") ? 1 : p.edu.includes("专") ? 2 : 3;
+  return {
+    type, startYear, educationIndex: eduIdx, deductYears: 0,
+    currentDutyIndex: cdi, currentDutyYear: startYear < 2006 ? 2002 : startYear + 1,
+    lowerDutyIndex: 0, lowerDutyYear: 1999,
+    positionChanges: buildInitList(type, startYear, cdi, startYear < 2006 ? 2002 : startYear + 1, eduIdx),
+    endYear: new Date().getFullYear(),
+  };
 }
 
 /* ---------------- 台账核验 ---------------- */
